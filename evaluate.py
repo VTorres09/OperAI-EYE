@@ -200,9 +200,15 @@ def load_model(model_path):
 
     if image_processor is None:
         from transformers import CLIPImageProcessor
-        vision_tower = getattr(model.config, "mm_vision_tower", "openai/clip-vit-large-patch14-336")
-        print(f"Loading image processor from {vision_tower}...")
-        image_processor = CLIPImageProcessor.from_pretrained(vision_tower)
+        vision_tower_name = getattr(model.config, "mm_vision_tower", "openai/clip-vit-large-patch14-336")
+        print(f"Loading image processor from {vision_tower_name}...")
+        image_processor = CLIPImageProcessor.from_pretrained(vision_tower_name)
+
+    vision_tower = model.get_vision_tower()
+    if not vision_tower.is_loaded:
+        print("Loading vision tower...")
+        vision_tower.load_model()
+    vision_tower.to(device="cuda", dtype=torch.float16)
 
     return tokenizer, model, image_processor
 
