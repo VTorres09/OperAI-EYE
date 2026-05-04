@@ -193,7 +193,7 @@ def load_model(model_path):
         "liuhaotian/llava-v1.5-7b",
         model_name,
         load_8bit=False,
-        load_4bit=True,
+        load_4bit=False,
         device_map="auto",
     )
     model.config.tokenizer_padding_side = "left"
