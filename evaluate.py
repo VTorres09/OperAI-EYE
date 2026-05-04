@@ -197,6 +197,13 @@ def load_model(model_path):
         device_map="auto",
     )
     model.config.tokenizer_padding_side = "left"
+
+    if image_processor is None:
+        from transformers import CLIPImageProcessor
+        vision_tower = getattr(model.config, "mm_vision_tower", "openai/clip-vit-large-patch14-336")
+        print(f"Loading image processor from {vision_tower}...")
+        image_processor = CLIPImageProcessor.from_pretrained(vision_tower)
+
     return tokenizer, model, image_processor
 
 
