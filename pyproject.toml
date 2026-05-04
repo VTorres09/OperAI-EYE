@@ -24,3 +24,8 @@ dependencies = [
     "transformers==4.31.0",
     "wandb>=0.26.1",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]

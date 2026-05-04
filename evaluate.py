@@ -10,14 +10,13 @@ Usage:
         --hdf5_path data/egoexor_miss.h5 \
         --output_csv eval_miss_exo_results.csv
 """
-import os
+
 import sys
 import re
 import csv
 import argparse
 import warnings
 from pathlib import Path
-from collections import defaultdict
 from copy import deepcopy
 
 import h5py
@@ -25,7 +24,6 @@ import numpy as np
 import torch
 from PIL import Image
 from tqdm import tqdm
-from sklearn.metrics import f1_score
 
 warnings.filterwarnings("ignore")
 
@@ -34,33 +32,95 @@ EGOEXOR_DIR = SCRIPT_DIR / "EgoExOR"
 sys.path.insert(0, str(EGOEXOR_DIR))
 sys.path.insert(0, str(EGOEXOR_DIR / "scene_graph_generation" / "LLaVA"))
 
-EXO_SOURCES = {"or_light", "microscope", "external_1", "external_2", "external_3", "external_4", "external_5", "simstation"}
+EXO_SOURCES = {
+    "or_light",
+    "microscope",
+    "external_1",
+    "external_2",
+    "external_3",
+    "external_4",
+    "external_5",
+    "simstation",
+}
 EGO_SOURCES = {"head_surgeon", "assistant", "circulator", "anesthetist"}
 
 SOURCES = {
-    "head_surgeon": 1, "assistant": 2, "circulator": 3, "anesthetist": 4,
-    "or_light": 5, "microscope": 6, "external_1": 7, "external_2": 8,
-    "external_3": 9, "external_4": 10, "external_5": 11, "simstation": 12,
-    "ultrasound": 13, "blank": -1,
+    "head_surgeon": 1,
+    "assistant": 2,
+    "circulator": 3,
+    "anesthetist": 4,
+    "or_light": 5,
+    "microscope": 6,
+    "external_1": 7,
+    "external_2": 8,
+    "external_3": 9,
+    "external_4": 10,
+    "external_5": 11,
+    "simstation": 12,
+    "ultrasound": 13,
+    "blank": -1,
 }
 reversed_sources = {v: k for k, v in SOURCES.items()}
 
 scene_graph_name_to_vocab_idx = {
-    "anesthetist": 0, "anesthesia_equipment": 1, "antiseptic": 2, "assistant": 3,
-    "bin": 4, "body_marker": 5, "circulator": 6, "cotton": 7, "curette": 8,
-    "dressing_material": 9, "forceps": 10, "gloves": 11, "head_surgeon": 12,
-    "health_monitor": 13, "herbal_disk": 14, "instrument_table": 15, "instruments": 16,
-    "microscope": 17, "microscope_controller": 18, "microscope_eye": 19,
-    "microscope_screen": 20, "needle": 21, "operating_room": 22, "operating_table": 23,
-    "patient": 24, "scalpel": 25, "scissors": 26, "syringe": 27, "tissue_mark": 28,
-    "tissue_paper": 29, "ultrasound_gel": 30, "ultrasound_machine": 31,
-    "ultrasound_probe": 32, "ultrasound_screen": 33, "unsterile_instruments": 34,
+    "anesthetist": 0,
+    "anesthesia_equipment": 1,
+    "antiseptic": 2,
+    "assistant": 3,
+    "bin": 4,
+    "body_marker": 5,
+    "circulator": 6,
+    "cotton": 7,
+    "curette": 8,
+    "dressing_material": 9,
+    "forceps": 10,
+    "gloves": 11,
+    "head_surgeon": 12,
+    "health_monitor": 13,
+    "herbal_disk": 14,
+    "instrument_table": 15,
+    "instruments": 16,
+    "microscope": 17,
+    "microscope_controller": 18,
+    "microscope_eye": 19,
+    "microscope_screen": 20,
+    "needle": 21,
+    "operating_room": 22,
+    "operating_table": 23,
+    "patient": 24,
+    "scalpel": 25,
+    "scissors": 26,
+    "syringe": 27,
+    "tissue_mark": 28,
+    "tissue_paper": 29,
+    "ultrasound_gel": 30,
+    "ultrasound_machine": 31,
+    "ultrasound_probe": 32,
+    "ultrasound_screen": 33,
+    "unsterile_instruments": 34,
     "vertebrae": 35,
-    "anaesthetising": 36, "applying": 37, "aspirating": 38, "looking": 39,
-    "closeto": 40, "controlling": 41, "cutting": 42, "disinfection": 43, "dressing": 44,
-    "dropping": 45, "entering": 46, "holding": 47, "injecting": 48, "inserting": 49,
-    "lyingon": 50, "manipulating": 51, "positioning": 52, "preparing": 53, "removing": 54,
-    "scanning": 55, "touching": 56, "wearing": 57,
+    "anaesthetising": 36,
+    "applying": 37,
+    "aspirating": 38,
+    "looking": 39,
+    "closeto": 40,
+    "controlling": 41,
+    "cutting": 42,
+    "disinfection": 43,
+    "dressing": 44,
+    "dropping": 45,
+    "entering": 46,
+    "holding": 47,
+    "injecting": 48,
+    "inserting": 49,
+    "lyingon": 50,
+    "manipulating": 51,
+    "positioning": 52,
+    "preparing": 53,
+    "removing": 54,
+    "scanning": 55,
+    "touching": 56,
+    "wearing": 57,
 }
 vocab_idx_to_scene_graph_name = {v: k for k, v in scene_graph_name_to_vocab_idx.items()}
 
@@ -107,7 +167,9 @@ def parse_triplets(text):
         triplet_str = text.split(";")
 
     for triplet in triplet_str:
-        triplet = triplet.replace(".", "").replace("</s>", "").replace("<s>", "").strip()
+        triplet = (
+            triplet.replace(".", "").replace("</s>", "").replace("<s>", "").strip()
+        )
         if not triplet:
             continue
         parts = [p.strip() for p in triplet.split(",")]
@@ -192,7 +254,9 @@ class FrameTransform:
             if self.pad_to_square:
                 bg = tuple(int(x * 255) for x in self.processor.image_mean)
                 data = self.expand2square(data, bg)
-            processed = self.processor.preprocess(data, return_tensors="pt")["pixel_values"]
+            processed = self.processor.preprocess(data, return_tensors="pt")[
+                "pixel_values"
+            ]
             return processed.squeeze(0).to(dtype=torch.bfloat16)
 
         elif isinstance(data, torch.Tensor):
@@ -239,11 +303,15 @@ class MISSExoRGBDataset(torch.utils.data.Dataset):
             sample["hdf5_indices"]["available_modalities"] = ["exo_frames"]
             self.samples.append(sample)
 
-        print(f"Filtered {len(self.samples)} MISS test samples from {len(all_samples)} total")
+        print(
+            f"Filtered {len(self.samples)} MISS test samples from {len(all_samples)} total"
+        )
 
     def _get_exo_cameras(self, take_path):
         if take_path not in self._exo_cache:
-            self._exo_cache[take_path] = get_exo_cameras_for_take(self.hdf5_path, take_path)
+            self._exo_cache[take_path] = get_exo_cameras_for_take(
+                self.hdf5_path, take_path
+            )
         return self._exo_cache[take_path]
 
     def __len__(self):
@@ -259,7 +327,9 @@ class MISSExoRGBDataset(torch.utils.data.Dataset):
             sample["conversations"][0]["value"], len(exo_ids)
         )
 
-        sample["sample_id"] = f"{h['surgery_type']}_{h['procedure_id']}_{h['take_id']}_{h['frame_idx']}"
+        sample["sample_id"] = (
+            f"{h['surgery_type']}_{h['procedure_id']}_{h['take_id']}_{h['frame_idx']}"
+        )
 
         return {
             "sample": sample,
@@ -283,8 +353,11 @@ class ExoCollator:
 
 def run_evaluation(args):
     from LLaVA.llava.constants import IMAGE_TOKEN_INDEX
-    from LLaVA.llava.conversation import default_conversation, SeparatorStyle
-    from LLaVA.llava.mm_utils import get_model_name_from_path, tokenizer_image_token, KeywordsStoppingCriteria
+    from LLaVA.llava.conversation import default_conversation
+    from LLaVA.llava.mm_utils import (
+        get_model_name_from_path,
+        tokenizer_image_token,
+    )
     from LLaVA.llava.model.builder import load_pretrained_model
 
     print(f"Loading model from {args.model_path}...")
@@ -313,7 +386,9 @@ def run_evaluation(args):
         collate_fn=collator,
     )
 
-    print(f"Running inference on {len(dataset)} MISS test frames (exocentric RGB only)...")
+    print(
+        f"Running inference on {len(dataset)} MISS test frames (exocentric RGB only)..."
+    )
     csv_rows = []
 
     for batch in tqdm(dataloader, desc="Evaluating"):
@@ -361,16 +436,22 @@ def run_evaluation(args):
         all_prompts = [x["prompt"] for x in outputs_data]
 
         if batch_size == 1:
-            input_ids = tokenizer_image_token(
-                all_prompts[0], tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
-            ).unsqueeze(0).to(model.device)
+            input_ids = (
+                tokenizer_image_token(
+                    all_prompts[0], tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
+                )
+                .unsqueeze(0)
+                .to(model.device)
+            )
         else:
             ids_list = [
                 tokenizer_image_token(p, tokenizer, return_tensors="pt")
                 for p in all_prompts
             ]
             inverted = [torch.flip(ids, dims=[0]) for ids in ids_list]
-            padded = torch.nn.utils.rnn.pad_sequence(inverted, batch_first=True, padding_value=tokenizer.pad_token_id)
+            padded = torch.nn.utils.rnn.pad_sequence(
+                inverted, batch_first=True, padding_value=tokenizer.pad_token_id
+            )
             input_ids = torch.flip(padded, dims=[1]).to(model.device)
 
         def collect(key):
@@ -389,8 +470,14 @@ def run_evaluation(args):
             "max_new_tokens": 300,
         }
 
-        for key in ["ego_frames", "exo_frames", "ego_source_ids", "exo_source_ids",
-                     "ego_source_names", "exo_source_names"]:
+        for key in [
+            "ego_frames",
+            "exo_frames",
+            "ego_source_ids",
+            "exo_source_ids",
+            "ego_source_names",
+            "exo_source_names",
+        ]:
             collected = collect(key)
             if collected:
                 forward_kwargs[key] = collected
@@ -408,7 +495,9 @@ def run_evaluation(args):
             output_ids = model.generate(**forward_kwargs)
 
         if batch_size == 1:
-            text_outputs = [tokenizer.decode(output_ids[0, input_ids.shape[1]:]).strip()]
+            text_outputs = [
+                tokenizer.decode(output_ids[0, input_ids.shape[1] :]).strip()
+            ]
         else:
             text_outputs = tokenizer.batch_decode(
                 output_ids[:, input_ids.shape[1:].tolist()],
@@ -437,22 +526,32 @@ def run_evaluation(args):
                 tp = len(gt_set & pred_set)
                 precision = tp / len(pred_set) if pred_set else 0.0
                 recall = tp / len(gt_set)
-                frame_f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+                frame_f1 = (
+                    2 * precision * recall / (precision + recall)
+                    if (precision + recall) > 0
+                    else 0.0
+                )
 
-            csv_rows.append({
-                "sample_id": sample.get("sample_id", sample.get("id", "")),
-                "procedure": h["surgery_type"],
-                "phase": h["procedure_id"],
-                "take": h["take_id"],
-                "frame_idx": h["frame_idx"],
-                "ground_truth": "; ".join(f"{s},{o},{p}" for s, p, o in gt_triplets),
-                "prediction": "; ".join(f"{s},{o},{p}" for s, p, o in pred_triplets),
-                "gt_count": len(gt_mapped),
-                "pred_count": len(pred_mapped),
-                "true_positives": len(gt_set & pred_set),
-                "frame_f1": round(frame_f1, 4),
-                "raw_output": output[:1000],
-            })
+            csv_rows.append(
+                {
+                    "sample_id": sample.get("sample_id", sample.get("id", "")),
+                    "procedure": h["surgery_type"],
+                    "phase": h["procedure_id"],
+                    "take": h["take_id"],
+                    "frame_idx": h["frame_idx"],
+                    "ground_truth": "; ".join(
+                        f"{s},{o},{p}" for s, p, o in gt_triplets
+                    ),
+                    "prediction": "; ".join(
+                        f"{s},{o},{p}" for s, p, o in pred_triplets
+                    ),
+                    "gt_count": len(gt_mapped),
+                    "pred_count": len(pred_mapped),
+                    "true_positives": len(gt_set & pred_set),
+                    "frame_f1": round(frame_f1, 4),
+                    "raw_output": output[:1000],
+                }
+            )
 
     output_csv = Path(args.output_csv)
     if not csv_rows:
@@ -470,11 +569,15 @@ def run_evaluation(args):
     total_pred = sum(r["pred_count"] for r in csv_rows)
     precision = total_tp / total_pred if total_pred > 0 else 0.0
     recall = total_tp / total_gt if total_gt > 0 else 0.0
-    overall_f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    overall_f1 = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
+    )
     avg_frame_f1 = np.mean([r["frame_f1"] for r in csv_rows])
 
     print(f"\n{'=' * 60}")
-    print(f"  MISS Exocentric RGB-Only Evaluation Results")
+    print("  MISS Exocentric RGB-Only Evaluation Results")
     print(f"{'=' * 60}")
     print(f"  Total frames evaluated: {len(csv_rows)}")
     print(f"  Precision:              {precision:.4f}")
@@ -486,7 +589,7 @@ def run_evaluation(args):
 
     summary_path = output_csv.with_suffix(".summary.txt")
     with open(summary_path, "w") as f:
-        f.write(f"MISS Exocentric RGB-Only Evaluation Summary\n")
+        f.write("MISS Exocentric RGB-Only Evaluation Summary\n")
         f.write(f"{'=' * 40}\n")
         f.write(f"Total frames: {len(csv_rows)}\n")
         f.write(f"Precision: {precision:.4f}\n")
@@ -497,12 +600,30 @@ def run_evaluation(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate EgoExOR on MISS test split (exocentric RGB only)")
-    parser.add_argument("--model_path", type=str, required=True, help="Path to model checkpoint directory")
-    parser.add_argument("--test_json", type=str, required=True, help="Path to test samples JSON")
-    parser.add_argument("--hdf5_path", type=str, required=True, help="Path to merged MISS HDF5 file")
-    parser.add_argument("--output_csv", type=str, default="eval_miss_exo_results.csv", help="Output CSV path")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
+    parser = argparse.ArgumentParser(
+        description="Evaluate EgoExOR on MISS test split (exocentric RGB only)"
+    )
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        required=True,
+        help="Path to model checkpoint directory",
+    )
+    parser.add_argument(
+        "--test_json", type=str, required=True, help="Path to test samples JSON"
+    )
+    parser.add_argument(
+        "--hdf5_path", type=str, required=True, help="Path to merged MISS HDF5 file"
+    )
+    parser.add_argument(
+        "--output_csv",
+        type=str,
+        default="eval_miss_exo_results.csv",
+        help="Output CSV path",
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=1, help="Batch size for inference"
+    )
     args = parser.parse_args()
     run_evaluation(args)
 

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Download EgoExOR model weights, test JSON, and MISS HDF5 data."""
+
 import argparse
 import zipfile
 from pathlib import Path
-from huggingface_hub import hf_hub_download, snapshot_download
+
+from huggingface_hub import hf_hub_download
 
 
 def download_model(output_dir: Path):
@@ -62,11 +64,21 @@ def download_miss_data(output_dir: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download EgoExOR evaluation artifacts")
-    parser.add_argument("--output_dir", type=str, default="data", help="Output directory")
+    parser = argparse.ArgumentParser(
+        description="Download EgoExOR evaluation artifacts"
+    )
+    parser.add_argument(
+        "--output_dir", type=str, default="data", help="Output directory"
+    )
     parser.add_argument("--skip-model", action="store_true", help="Skip model download")
-    parser.add_argument("--skip-data", action="store_true", help="Skip HDF5 data download")
-    parser.add_argument("--miss-only", action="store_true", help="Download only MISS data (no ultrasound)")
+    parser.add_argument(
+        "--skip-data", action="store_true", help="Skip HDF5 data download"
+    )
+    parser.add_argument(
+        "--miss-only",
+        action="store_true",
+        help="Download only MISS data (no ultrasound)",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -81,13 +93,13 @@ def main():
 
         miss_files = sorted(data_dir.glob("miss_*.h5"))
         if miss_files:
-            print(f"\nTo merge MISS HDF5 files, run:")
-            print(f"  python -m EgoExOR.data.utils.merge_h5 \\")
+            print("\nTo merge MISS HDF5 files, run:")
+            print("  python -m EgoExOR.data.utils.merge_h5 \\")
             print(f"    --data_dir {data_dir} \\")
             fargs = " ".join(f.name for f in miss_files)
             print(f"    --input_files {fargs} \\")
             splits = data_dir / "splits.h5"
-            print(f"    --splits_file splits.h5 \\")
+            print(f"    --splits_file {splits} \\")
             print(f"    --output_file {output_dir / 'egoexor_miss.h5'}")
 
     print("\nDone!")
