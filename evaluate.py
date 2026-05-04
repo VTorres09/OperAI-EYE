@@ -254,9 +254,9 @@ def run_inference(tokenizer, model, image_processor, samples, hdf5_path, batch_s
                 all_images.append(torch.stack(imgs))
 
                 prompt = adjust_prompt(s["conversations"][0]["value"], len(imgs))
-                conv = deepcopy(default_conversation)
-                conv.append_message("human", prompt)
-                conv.append_message("gpt", None)
+                conv = default_conversation.copy()
+                conv.append_message(conv.roles[0], prompt)
+                conv.append_message(conv.roles[1], None)
                 all_prompts.append(conv.get_prompt())
                 all_gt.append(s["conversations"][1]["value"])
 
