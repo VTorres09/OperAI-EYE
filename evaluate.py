@@ -11,13 +11,13 @@ Usage:
         --output_csv eval_miss_exo_results.csv
 """
 
-import sys
-import re
-import csv
 import argparse
+import csv
+import re
+import sys
 import warnings
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -352,13 +352,13 @@ class ExoCollator:
 
 
 def run_evaluation(args):
-    from LLaVA.llava.constants import IMAGE_TOKEN_INDEX
-    from LLaVA.llava.conversation import default_conversation
-    from LLaVA.llava.mm_utils import (
+    from llava.constants import IMAGE_TOKEN_INDEX
+    from llava.conversation import default_conversation
+    from llava.mm_utils import (
         get_model_name_from_path,
         tokenizer_image_token,
     )
-    from LLaVA.llava.model.builder import load_pretrained_model
+    from llava.model.builder import load_pretrained_model
 
     print(f"Loading model from {args.model_path}...")
     model_name = get_model_name_from_path(args.model_path)
