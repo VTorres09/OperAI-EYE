@@ -175,6 +175,7 @@ def register_llava_model():
     from transformers import AutoConfig, AutoModelForCausalLM
     from llava.model.language_model.llava_llama import LlavaConfig, LlavaLlamaForCausalLM
 
+    LlavaConfig.model_type = "llava"
     AutoConfig.register("llava", LlavaConfig, exist_ok=True)
     AutoModelForCausalLM.register(LlavaConfig, LlavaLlamaForCausalLM, exist_ok=True)
 
