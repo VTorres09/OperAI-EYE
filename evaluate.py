@@ -276,12 +276,15 @@ def run_inference(tokenizer, model, image_processor, samples, hdf5_path, batch_s
             pad = torch.nn.utils.rnn.pad_sequence(inv, batch_first=True, padding_value=tokenizer.pad_token_id)
             input_ids = torch.flip(pad, [1]).to(device)
 
-        images_batch = [imgs.to(device, dtype=torch.float16) for imgs in all_images]
+        flat_images = []
+        for sample_imgs in all_images:
+            for img in sample_imgs:
+                flat_images.append(img.unsqueeze(0).to(device, dtype=torch.float16))
 
         with torch.inference_mode():
             output_ids = model.generate(
                 inputs=input_ids,
-                images=images_batch,
+                images=flat_images,
                 do_sample=False,
                 use_cache=True,
                 max_new_tokens=300,
