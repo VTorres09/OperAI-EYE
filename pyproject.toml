@@ -27,16 +27,5 @@ dependencies = [
     "wandb>=0.26.1",
 ]
 
-[tool.uv]
-required-environments = [
-    "sys_platform == 'darwin' and platform_machine == 'arm64'",
-]
-
 [tool.uv.sources]
 llava = { git = "https://github.com/haotian-liu/LLaVA" }
-
-
-[dependency-groups]
-dev = [
-    "ruff>=0.15.12",
-]
