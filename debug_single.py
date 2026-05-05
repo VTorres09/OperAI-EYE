@@ -1,7 +1,7 @@
 import h5py
 import json
 import torch
-from evaluate import get_exo_cameras, adjust_prompt, process_frame, register_llava_model
+from evaluate import get_exo_cameras, process_frame, register_llava_model
 
 register_llava_model()
 from llava.mm_utils import get_model_name_from_path, tokenizer_image_token
@@ -38,47 +38,44 @@ for s in samples:
 h = sample["hdf5_indices"]
 take = f"data/{h['surgery_type']}/{h['procedure_id']}/take/{h['take_id']}"
 exo_ids, exo_names = get_exo_cameras("data/hdf5/data/egoexor_miss.h5", take)
-print(f"Take: {take}, exo cameras: {exo_names} ({exo_ids})")
-print(f"Frame idx: {h['frame_idx']}")
+print(f"Take: {take}")
+print(f"Exo cameras: {exo_names} (ids: {exo_ids})")
+
+# Pick external_1
+chosen = exo_ids[0]
+for k, name in zip(exo_ids, exo_names):
+    if name == "external_1":
+        chosen = k
+        break
+print(f"Using camera index {chosen}")
 
 with h5py.File("data/hdf5/data/egoexor_miss.h5", "r") as f:
     frame_rgb = f[f"{take}/frames/rgb"][h["frame_idx"]]
 
-print(f"frame_rgb shape: {frame_rgb.shape}, dtype: {frame_rgb.dtype}, range: [{frame_rgb.min()}, {frame_rgb.max()}]")
+img = process_frame(torch.from_numpy(frame_rgb[chosen]).float(), image_processor)
+print(f"Image shape: {img.shape}")
 
-imgs = []
-for sid in exo_ids:
-    t = torch.from_numpy(frame_rgb[sid]).float()
-    print(f"  Camera {sid}: shape={t.shape}, range=[{t.min():.1f}, {t.max():.1f}], all_zero={t.max()==0}")
-    proc = process_frame(t, image_processor)
-    if proc is not None:
-        imgs.append(proc)
-print(f"Processed {len(imgs)} images, each shape: {imgs[0].shape}")
-
-prompt = adjust_prompt(sample["conversations"][0]["value"], len(imgs))
-print(f"Prompt: {prompt[:300]}")
-
+# Use ORIGINAL prompt from test JSON (has single <image> token)
 conv = default_conversation.copy()
-conv.append_message(conv.roles[0], prompt)
+conv.append_message(conv.roles[0], sample["conversations"][0]["value"])
 conv.append_message(conv.roles[1], None)
-full_prompt = conv.get_prompt()
+prompt = conv.get_prompt()
 
-input_ids = tokenizer_image_token(full_prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt").unsqueeze(0).to(device)
+input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt").unsqueeze(0).to(device)
 print(f"input_ids shape: {input_ids.shape}")
-num_img_tokens = (input_ids == IMAGE_TOKEN_INDEX).sum().item()
-print(f"Num image tokens: {num_img_tokens}, Num images: {len(imgs)}")
+print(f"Num <image> tokens: {(input_ids == IMAGE_TOKEN_INDEX).sum().item()}")
 
-flat_images = [img.unsqueeze(0).to(device, dtype=torch.float16) for img in imgs]
+images = [img.unsqueeze(0).to(device, dtype=torch.float16)]
 
 with torch.inference_mode():
     output_ids = model.generate(
         inputs=input_ids,
-        images=flat_images,
+        images=images,
         do_sample=False,
         use_cache=True,
         max_new_tokens=300,
     )
 
 output = tokenizer.decode(output_ids[0, input_ids.shape[1]:]).strip()
-print(f"Raw output: [{output}]")
-print(f"GT: [{sample['conversations'][1]['value'][:200]}]")
+print(f"\nRaw output: [{output[:500]}]")
+print(f"\nGT: [{sample['conversations'][1]['value'][:300]}]")

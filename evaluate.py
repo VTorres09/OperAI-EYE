@@ -170,6 +170,26 @@ def process_frame(frame_tensor, image_processor):
     return out.squeeze(0)
 
 
+def mosaic_exo_frames(frame_list):
+    """Tile multiple [H,W,3] uint8 frames into a single square mosaic PIL image."""
+    if not frame_list:
+        return None
+    n = len(frame_list)
+    cols = int(np.ceil(np.sqrt(n)))
+    rows = int(np.ceil(n / cols))
+    h, w = frame_list[0].shape[:2]
+    canvas = np.zeros((rows * h, cols * w, 3), dtype=np.uint8)
+    for idx, frame in enumerate(frame_list):
+        r, c = divmod(idx, cols)
+        arr = frame.cpu().numpy() if isinstance(frame, torch.Tensor) else frame
+        if arr.max() <= 1.0:
+            arr = (arr * 255).astype(np.uint8)
+        else:
+            arr = arr.astype(np.uint8)
+        canvas[r * h : (r + 1) * h, c * w : (c + 1) * w] = arr
+    return Image.fromarray(canvas).convert("RGB")
+
+
 def register_llava_model():
     """Register LlavaLlamaForCausalLM for 'llava' model_type (fixes transformers 4.37+ conflict)."""
     from transformers import AutoConfig, AutoModelForCausalLM
@@ -245,23 +265,23 @@ def run_inference(tokenizer, model, image_processor, samples, hdf5_path, batch_s
 
                 if take not in exo_cache:
                     exo_cache[take] = get_exo_cameras(hdf5_path, take)
-                exo_ids, _ = exo_cache[take]
+                exo_ids, exo_names = exo_cache[take]
 
                 frame_rgb = f[f"{take}/frames/rgb"][fidx]
-                imgs = []
-                for sid in exo_ids:
-                    proc = process_frame(torch.from_numpy(frame_rgb[sid]).float(), image_processor)
-                    if proc is not None:
-                        imgs.append(proc)
 
-                if not imgs:
-                    imgs = [torch.zeros(3, 336, 336)]
+                # Pick external_1 if available, else first exo camera
+                chosen_idx = exo_ids[0]
+                for k, name in zip(exo_ids, exo_names):
+                    if name == "external_1":
+                        chosen_idx = k
+                        break
+                img = process_frame(torch.from_numpy(frame_rgb[chosen_idx]).float(), image_processor)
+                if img is None:
+                    img = torch.zeros(3, 336, 336)
+                all_images.append(img.unsqueeze(0).to(device, dtype=torch.float16))
 
-                all_images.append(torch.stack(imgs))
-
-                prompt = adjust_prompt(s["conversations"][0]["value"], len(imgs))
                 conv = default_conversation.copy()
-                conv.append_message(conv.roles[0], prompt)
+                conv.append_message(conv.roles[0], s["conversations"][0]["value"])
                 conv.append_message(conv.roles[1], None)
                 all_prompts.append(conv.get_prompt())
                 all_gt.append(s["conversations"][1]["value"])
@@ -276,15 +296,10 @@ def run_inference(tokenizer, model, image_processor, samples, hdf5_path, batch_s
             pad = torch.nn.utils.rnn.pad_sequence(inv, batch_first=True, padding_value=tokenizer.pad_token_id)
             input_ids = torch.flip(pad, [1]).to(device)
 
-        flat_images = []
-        for sample_imgs in all_images:
-            for img in sample_imgs:
-                flat_images.append(img.unsqueeze(0).to(device, dtype=torch.float16))
-
         with torch.inference_mode():
             output_ids = model.generate(
                 inputs=input_ids,
-                images=flat_images,
+                images=all_images,
                 do_sample=False,
                 use_cache=True,
                 max_new_tokens=300,
