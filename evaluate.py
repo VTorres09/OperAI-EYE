@@ -6,7 +6,7 @@ Usage:
     python evaluate.py \
         --model_path data/model/model \
         --test_json data/test_1perm_Falsetemp_Falsetempaug_EgoExOR_5k_samples_drophistory0.5.json \
-        --hdf5_path data/egoexor_miss.h5 \
+        --hdf5_path data/hdf5/data/egoexor_miss.h5 \
         --output_csv eval_miss_exo_results.csv
 """
 
@@ -15,7 +15,6 @@ import csv
 import json
 import re
 import warnings
-from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
 
@@ -28,13 +27,8 @@ from tqdm import tqdm
 warnings.filterwarnings("ignore")
 
 EXO_SOURCES = {
-    "or_light",
-    "microscope",
-    "external_1",
-    "external_2",
-    "external_3",
-    "external_4",
-    "external_5",
+    "or_light", "microscope",
+    "external_1", "external_2", "external_3", "external_4", "external_5",
     "simstation",
 }
 
@@ -136,14 +130,6 @@ def get_exo_cameras(h5_path, take_path):
     return ids, names
 
 
-def adjust_prompt(text, n_images):
-    current = text.count("<image>")
-    if current == n_images:
-        return text
-    prompt = re.sub(r"(<image>\s*)+", "", text).strip()
-    return " ".join(["<image>"] * n_images) + " " + prompt
-
-
 def expand2square(img, bg):
     w, h = img.size
     if w == h:
@@ -155,7 +141,6 @@ def expand2square(img, bg):
 
 
 def process_frame(frame_tensor, image_processor):
-    """Process a single [H,W,3] uint8 tensor into [C,H,W] for LLaVA."""
     arr = frame_tensor.cpu().numpy()
     if arr.max() == 0:
         return None
@@ -167,34 +152,12 @@ def process_frame(frame_tensor, image_processor):
     bg = tuple(int(x * 255) for x in image_processor.image_mean)
     pil = expand2square(pil, bg)
     out = image_processor.preprocess(pil, return_tensors="pt")["pixel_values"]
-    return out.squeeze(0)
-
-
-def mosaic_exo_frames(frame_list):
-    """Tile multiple [H,W,3] uint8 frames into a single square mosaic PIL image."""
-    if not frame_list:
-        return None
-    n = len(frame_list)
-    cols = int(np.ceil(np.sqrt(n)))
-    rows = int(np.ceil(n / cols))
-    h, w = frame_list[0].shape[:2]
-    canvas = np.zeros((rows * h, cols * w, 3), dtype=np.uint8)
-    for idx, frame in enumerate(frame_list):
-        r, c = divmod(idx, cols)
-        arr = frame.cpu().numpy() if isinstance(frame, torch.Tensor) else frame
-        if arr.max() <= 1.0:
-            arr = (arr * 255).astype(np.uint8)
-        else:
-            arr = arr.astype(np.uint8)
-        canvas[r * h : (r + 1) * h, c * w : (c + 1) * w] = arr
-    return Image.fromarray(canvas).convert("RGB")
+    return out.squeeze(0).to(dtype=torch.bfloat16)
 
 
 def register_llava_model():
-    """Register LlavaLlamaForCausalLM for 'llava' model_type (fixes transformers 4.37+ conflict)."""
     from transformers import AutoConfig, AutoModelForCausalLM
     from llava.model.language_model.llava_llama import LlavaConfig, LlavaLlamaForCausalLM
-
     LlavaConfig.model_type = "llava"
     AutoConfig.register("llava", LlavaConfig, exist_ok=True)
     AutoModelForCausalLM.register(LlavaConfig, LlavaLlamaForCausalLM, exist_ok=True)
@@ -203,6 +166,7 @@ def register_llava_model():
 def load_model(model_path):
     from llava.mm_utils import get_model_name_from_path
     from llava.model.builder import load_pretrained_model
+    from transformers import CLIPImageProcessor
 
     register_llava_model()
 
@@ -216,10 +180,10 @@ def load_model(model_path):
         load_4bit=False,
         device_map="auto",
     )
+    model.config.mv_type = "learned"
     model.config.tokenizer_padding_side = "left"
 
     if image_processor is None:
-        from transformers import CLIPImageProcessor
         vision_tower_name = getattr(model.config, "mm_vision_tower", "openai/clip-vit-large-patch14-336")
         print(f"Loading image processor from {vision_tower_name}...")
         image_processor = CLIPImageProcessor.from_pretrained(vision_tower_name)
@@ -243,8 +207,8 @@ def load_miss_samples(test_json_path):
 
 def run_inference(tokenizer, model, image_processor, samples, hdf5_path, batch_size=1):
     from llava.constants import IMAGE_TOKEN_INDEX
-    from llava.conversation import default_conversation
-    from llava.mm_utils import tokenizer_image_token
+    from llava.conversation import default_conversation, SeparatorStyle
+    from llava.mm_utils import tokenizer_image_token, KeywordsStoppingCriteria
 
     device = next(model.parameters()).device
     csv_rows = []
@@ -253,7 +217,8 @@ def run_inference(tokenizer, model, image_processor, samples, hdf5_path, batch_s
     for i in tqdm(range(0, len(samples), batch_size), desc="Evaluating"):
         batch_samples = samples[i : i + batch_size]
         bs = len(batch_samples)
-        all_images = []
+        all_exo_frames = []
+        all_exo_source_ids = []
         all_prompts = []
         all_gt = []
 
@@ -265,20 +230,20 @@ def run_inference(tokenizer, model, image_processor, samples, hdf5_path, batch_s
 
                 if take not in exo_cache:
                     exo_cache[take] = get_exo_cameras(hdf5_path, take)
-                exo_ids, exo_names = exo_cache[take]
+                exo_ids, _ = exo_cache[take]
 
                 frame_rgb = f[f"{take}/frames/rgb"][fidx]
+                exo_imgs = []
+                for sid in exo_ids:
+                    proc = process_frame(torch.from_numpy(frame_rgb[sid]).float(), image_processor)
+                    if proc is not None:
+                        exo_imgs.append(proc)
 
-                # Pick external_1 if available, else first exo camera
-                chosen_idx = exo_ids[0]
-                for k, name in zip(exo_ids, exo_names):
-                    if name == "external_1":
-                        chosen_idx = k
-                        break
-                img = process_frame(torch.from_numpy(frame_rgb[chosen_idx]).float(), image_processor)
-                if img is None:
-                    img = torch.zeros(3, 336, 336)
-                all_images.append(img.unsqueeze(0).to(device, dtype=torch.float16))
+                if exo_imgs:
+                    all_exo_frames.append(torch.stack(exo_imgs))
+                else:
+                    all_exo_frames.append(torch.zeros(1, 3, 336, 336, dtype=torch.bfloat16))
+                all_exo_source_ids.append(exo_ids)
 
                 conv = default_conversation.copy()
                 conv.append_message(conv.roles[0], s["conversations"][0]["value"])
@@ -296,14 +261,24 @@ def run_inference(tokenizer, model, image_processor, samples, hdf5_path, batch_s
             pad = torch.nn.utils.rnn.pad_sequence(inv, batch_first=True, padding_value=tokenizer.pad_token_id)
             input_ids = torch.flip(pad, [1]).to(device)
 
+        conv = default_conversation.copy()
+        conv.append_message(conv.roles[0], "")
+        conv.append_message(conv.roles[1], None)
+        stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
+        stopping_criteria = KeywordsStoppingCriteria([stop_str], tokenizer, input_ids)
+
+        forward_kwargs = {
+            "input_ids": input_ids,
+            "do_sample": False,
+            "use_cache": True,
+            "max_new_tokens": 300,
+            "stopping_criteria": [stopping_criteria],
+            "exo_frames": [frames.to(device) for frames in all_exo_frames],
+            "exo_source_ids": all_exo_source_ids,
+        }
+
         with torch.inference_mode():
-            output_ids = model.generate(
-                inputs=input_ids,
-                images=all_images,
-                do_sample=False,
-                use_cache=True,
-                max_new_tokens=300,
-            )
+            output_ids = model.generate(**forward_kwargs)
 
         if bs == 1:
             texts = [tokenizer.decode(output_ids[0, input_ids.shape[1]:]).strip()]
