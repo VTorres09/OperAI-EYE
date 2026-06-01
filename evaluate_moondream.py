@@ -13,10 +13,13 @@ import argparse
 import csv
 import json
 import logging
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+
+os.environ.setdefault("DYLD_LIBRARY_PATH", "/opt/homebrew/opt/vips/lib")
 
 import torch
 from PIL import Image
@@ -30,7 +33,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROMPT_PATH = Path("prompts/or_phase.txt")
+DEFAULT_PROMPT_PATH = Path("prompts/or_phase_simple.txt")
 DATA_DIR = Path("data/exocentric_rgb")
 OUTPUT_DIR = Path("output")
 VALID_PHASES = {"IDLE", "TURNOVER", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
@@ -79,7 +82,10 @@ def load_prompt(prompt_path: Path) -> str:
     if not prompt_path.exists():
         logger.error("Prompt file not found: %s", prompt_path)
         sys.exit(1)
-    return prompt_path.read_text().strip()
+    prompt = prompt_path.read_text().strip()
+    logger.info("Loaded prompt from %s (%d chars)", prompt_path, len(prompt))
+    logger.info("Prompt ends with: %s", prompt[-100:])
+    return prompt
 
 
 def load_labels(labels_path: Path) -> list[dict[str, str]]:
@@ -103,15 +109,28 @@ def parse_response(text: str) -> dict[str, Any]:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return {"phase": "UNKNOWN", "confidence": 0.0, "key_visual_cues": ["parse_error"]}
+        pass
+    text_upper = text.upper()
+    for phase in VALID_PHASES:
+        if phase in text_upper:
+            return {"phase": phase, "confidence": 0.5, "key_visual_cues": [text]}
+    return {"phase": "UNKNOWN", "confidence": 0.0, "key_visual_cues": [text]}
 
 
 def evaluate_image(model: Any, image_path: Path, prompt: str) -> dict[str, Any]:
     image = Image.open(image_path)
-    encoded = model.encode_image(image)
-    result = model.query(encoded, prompt, settings={"temperature": 0.1, "max_tokens": 500})
-    answer = result.get("answer", "")
-    return parse_response(answer)
+    try:
+        logger.debug("Evaluating %s with prompt length %d", image_path, len(prompt))
+        result = model.query(image, prompt, settings={"temperature": 0.1, "max_tokens": 50})
+        answer = result.get("answer", "")
+        logger.debug("Model answer: %s", answer[:100])
+        return parse_response(answer)
+    finally:
+        image.close()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch, 'mps') and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
 
 
 def compute_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -150,6 +169,20 @@ def compute_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def load_existing_eval_results(output_path: Path) -> set[str]:
+    if not output_path.exists():
+        return set()
+    evaluated = set()
+    with open(output_path) as f:
+        next(f, None)
+        for line in f:
+            if line.strip():
+                path = line.split(",")[0]
+                evaluated.add(path)
+    logger.info("Found %d already evaluated images in %s", len(evaluated), output_path)
+    return evaluated
+
+
 def main() -> int:
     args = parse_args()
     device = get_device(args.device)
@@ -157,44 +190,58 @@ def main() -> int:
     labels = load_labels(args.labels)
     if args.limit:
         labels = labels[: args.limit]
-    model = load_model(args.model, args.revision, device, args.compile)
     output_path = args.output or OUTPUT_DIR / "eval_results.csv"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    results: list[dict[str, Any]] = []
+    existing = load_existing_eval_results(output_path)
+    to_evaluate = [row for row in labels if row["path"] not in existing]
+    if not to_evaluate:
+        logger.info("All images already evaluated")
+        return 0
+    logger.info("Evaluating %d images (%d already done)", len(to_evaluate), len(existing))
+    model = load_model(args.model, args.revision, device, args.compile)
+    fieldnames = ["path", "ground_truth", "predicted", "confidence", "key_visual_cues", "correct"]
+    file_exists = output_path.exists()
     errors = 0
-    for row in tqdm(labels, desc="Evaluating"):
-        image_rel_path = row["path"]
-        image_path = DATA_DIR / image_rel_path
-        if not image_path.exists():
-            logger.warning("Image not found: %s", image_path)
-            errors += 1
-            continue
-        ground_truth = row["phase"]
-        try:
-            prediction = evaluate_image(model, image_path, prompt)
-        except Exception as e:
-            logger.warning("Error evaluating %s: %s", image_path, e)
-            prediction = {"phase": "ERROR", "confidence": 0.0, "key_visual_cues": [str(e)]}
-            errors += 1
-        predicted_phase = prediction.get("phase", "UNKNOWN")
-        if predicted_phase not in VALID_PHASES:
-            predicted_phase = "UNKNOWN"
-        results.append({
-            "path": image_rel_path,
-            "ground_truth": ground_truth,
-            "predicted": predicted_phase,
-            "confidence": prediction.get("confidence", 0.0),
-            "key_visual_cues": "|".join(prediction.get("key_visual_cues", [])),
-            "correct": ground_truth == predicted_phase,
-        })
-    if results:
-        fieldnames = ["path", "ground_truth", "predicted", "confidence", "key_visual_cues", "correct"]
-        with open(output_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+    results_count = 0
+    with open(output_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
             writer.writeheader()
-            writer.writerows(results)
-        logger.info("Wrote %d results to %s", len(results), output_path)
-    metrics = compute_metrics(results)
+        for row in tqdm(to_evaluate, desc="Evaluating"):
+            image_rel_path = row["path"]
+            image_path = DATA_DIR / image_rel_path
+            if not image_path.exists():
+                logger.warning("Image not found: %s", image_path)
+                errors += 1
+                continue
+            ground_truth = row["phase"]
+            try:
+                prediction = evaluate_image(model, image_path, prompt)
+            except Exception as e:
+                logger.warning("Error evaluating %s: %s", image_path, e)
+                prediction = {"phase": "ERROR", "confidence": 0.0, "key_visual_cues": [str(e)]}
+                errors += 1
+            predicted_phase = prediction.get("phase", "UNKNOWN")
+            if predicted_phase not in VALID_PHASES:
+                predicted_phase = "UNKNOWN"
+            result = {
+                "path": image_rel_path,
+                "ground_truth": ground_truth,
+                "predicted": predicted_phase,
+                "confidence": prediction.get("confidence", 0.0),
+                "key_visual_cues": "|".join(prediction.get("key_visual_cues", [])),
+                "correct": ground_truth == predicted_phase,
+            }
+            writer.writerow(result)
+            f.flush()
+            results_count += 1
+    logger.info("Evaluated %d images, errors: %d", results_count, errors)
+    all_results = []
+    with open(output_path) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            all_results.append(row)
+    metrics = compute_metrics(all_results)
     logger.info("=" * 50)
     logger.info("EVALUATION RESULTS")
     logger.info("=" * 50)

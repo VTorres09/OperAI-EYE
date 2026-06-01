@@ -11,10 +11,9 @@ dependencies = [
     "pillow>=11.0.0",
     "tqdm>=4.67.0",
     "openai>=1.0.0",
-    "transformers>=4.51.1",
+    "transformers>=4.51.1,<5.0.0",
     "torch>=2.7.0",
     "accelerate>=1.10.0",
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.34.0",
-    "pandas>=2.2.0",
+    "einops>=0.7.0",
+    "pyvips>=2.2.0",
 ]
