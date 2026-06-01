@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# data
+data/
+output/
+
+# frontend build output
+static/
+
+# Playwright
+.playwright
+.playwright-cli
