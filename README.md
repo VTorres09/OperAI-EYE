@@ -1,43 +1,92 @@
 # OperAI-EYE
 
-Evaluation of the [EgoExOR](https://github.com/ardamamur/EgoExOR) scene graph generation model on the MISS test split using exocentric RGB frames only.
+Surgical operating room phase classification pipeline. Downloads exocentric RGB images from the [EgoExOR](https://huggingface.co/datasets/ardamamur/EgoExOR) dataset, labels them using a vision LLM API, evaluates local models against those labels, and visualizes results in a web UI.
+
+## Phases
+
+| Phase | Description |
+|---|---|
+| `IDLE` | Empty OR, no patient, no activity |
+| `TURNOVER` | Staff cleaning/restocking, no patient |
+| `PATIENT_IN_ROOM` | Patient present, no active surgery |
+| `SURGERY_ACTIVE` | Active surgical procedure underway |
+| `UNKNOWN` | View obstructed or unclassifiable |
 
 ## Setup
 
-Requires Python 3.11, CUDA GPU, and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# 1. Install dependencies
 uv sync
-
-# 2. Clone EgoExOR repo and install LLaVA
-bash setup.sh
-
-# 3. Download model weights + test JSON + MISS HDF5 data (~62 GB)
-python download.py --miss-only
 ```
 
-After download, merge MISS HDF5 files:
+## Pipeline
+
+### 1. Download data
 
 ```bash
-python -m EgoExOR.data.utils.merge_h5 \
-  --data_dir data/hdf5 \
-  --input_files miss_1.h5 miss_2.h5 miss_3.h5 miss_4.h5 \
-  --splits_file splits.h5 \
-  --output_file data/egoexor_miss.h5
+python download_exocentric_rgb.py [--data-dir ./data] [--keep-hdf5]
 ```
 
-## Evaluate
+Downloads HDF5 files from HuggingFace and extracts exocentric RGB images into `data/exocentric_rgb/{split}/...`. HDF5 files are deleted after extraction by default.
+
+### 2. Label data
 
 ```bash
-python evaluate.py \
-  --model_path data/model/llava-v1.5-7b-task-lora_hybridor_qlora_4perm_EgoExOR \
-  --test_json data/test_1perm_Falsetemp_Falsetempaug_EgoExOR_5k_samples_drophistory0.5.json \
-  --hdf5_path data/egoexor_miss.h5 \
-  --output_csv eval_miss_exo_results.csv
+export OPENAI_API_KEY=sk-...   # or GEMINI_API_KEY
+python label_data.py --split validation [--concurrency 10] [--limit N]
 ```
 
-## Output
+Sends images to an OpenAI-compatible vision API and writes labels to `output/{split}_labels.csv`. Resumes from existing output (skips already-labeled images).
 
-- `eval_miss_exo_results.csv` — per-frame predictions with ground truth, triplet counts, and frame-level F1
-- `eval_miss_exo_results.summary.txt` — overall precision, recall, F1
+Environment variables:
+- `OPENAI_API_KEY` or `GEMINI_API_KEY` — required
+- `OPENAI_BASE_URL` — custom API endpoint
+- `MODEL_NAME` — override model (default: `gemini-2.0-flash`)
+
+### 3. Evaluate model
+
+```bash
+python evaluate_moondream.py --labels output/validation_labels.csv [--limit N]
+```
+
+Runs [Moondream2](https://huggingface.co/vikhyatk/moondream2) locally and compares predictions against API labels. Outputs `output/eval_results.csv` and `output/eval_metrics.json`.
+
+## Visualization
+
+```bash
+uv run python run.py [--port 8000] [--reload]
+```
+
+Builds the React frontend and starts a FastAPI server serving both the API (`/api/*`) and the SPA on a single port.
+
+For frontend-only development:
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+The Vite dev server proxies `/api` requests to `localhost:8000`.
+
+## Project structure
+
+```
+├── download_exocentric_rgb.py   # Step 1: download & extract dataset
+├── label_data.py                # Step 2: LLM-based image labeling
+├── evaluate_moondream.py        # Step 3: local model evaluation
+├── run.py                       # Visualization server entry point
+├── app/                         # FastAPI backend
+├── frontend/                    # React + Vite frontend
+├── prompts/                     # LLM prompt templates
+├── data/                        # Downloaded images (gitignored)
+├── output/                      # Labels & eval results (gitignored)
+└── static/                      # Frontend build output (gitignored)
+```
+
+## Data layout
+
+```
+data/exocentric_rgb/{split}/{surgery_type}/{procedure_id}/take_{take_id}/{camera}/frame_{frame_id}.png
+```
+
+Splits: `train`, `validation`, `test`

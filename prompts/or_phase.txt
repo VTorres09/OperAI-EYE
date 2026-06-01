@@ -1,0 +1,41 @@
+This image was captured by a fixed ceiling/wall-mounted camera inside a hospital surgical operating room (OR). Your task is to classify the current state of the room based solely on this single frame.
+
+Classify the image into exactly ONE of the following mutually exclusive classes:
+
+================ CLASSES ================
+
+- IDLE:
+  Empty/near-empty OR with no patient and no people present. Room is quiet and waiting. Lights may be dimmed, equipment stationary. Baseline "ready and waiting" state with no activity.
+
+- TURNOVER:
+  No patient present, but staff are actively cleaning, disposing waste, restocking, repositioning equipment, or preparing the room for the next case. People are visible but no patient on the table.
+
+- PATIENT_IN_ROOM:
+  Patient is present in the OR but active surgery is NOT currently happening. This includes:
+  - Patient being brought in, positioned, anesthetized, draped (pre-surgery preparation)
+  - Patient being extubated, monitoring disconnected, transferred off table (post-surgery)
+  Essentially: patient is in the room but surgeons are not actively operating with instruments.
+
+- SURGERY_ACTIVE:
+  Active surgical procedure underway. Incision made, sterile field established, surgeons operating with instruments under focused surgical lights. Includes all intraoperative sub-phases from initial incision through final dressing application.
+
+- UNKNOWN:
+  View is obstructed, camera occluded, image too dark/blurry, or none of the above clearly apply.
+
+================ DECISION RULES ================
+1. Primary signal: presence/state of the patient on the operating table.
+2. If no patient and no people are present, classify as IDLE.
+3. If no patient but people are actively cleaning/restocking, classify as TURNOVER.
+4. If patient is present but no active surgical instruments are being used on them, classify as PATIENT_IN_ROOM.
+5. If patient is present AND surgeons are actively operating with instruments under surgical lights, classify as SURGERY_ACTIVE.
+6. Judge ONLY what is visible in this frame. Do not assume continuity from prior context.
+7. If the scene is genuinely ambiguous or unclear, return UNKNOWN with a low confidence rather than guessing.
+
+================ OUTPUT FORMAT ================
+Respond with ONLY a valid JSON object, no markdown, no commentary:
+
+{
+  "phase": "<one of: IDLE | TURNOVER | PATIENT_IN_ROOM | SURGERY_ACTIVE | UNKNOWN>",
+  "confidence": <float between 0.0 and 1.0>,
+  "key_visual_cues": ["<short cue 1>", "<short cue 2>", "..."]
+}
