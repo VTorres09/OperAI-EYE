@@ -1,6 +1,5 @@
 Classify this operating room image into one of these categories:
 - IDLE: Empty room, no people
-- TURNOVER: Staff cleaning or preparing room, no patient
 - PATIENT_IN_ROOM: Patient present but no active surgery
 - SURGERY_ACTIVE: Active surgery with surgeons operating
 - UNKNOWN: Cannot determine
@@ -8,10 +7,9 @@ Classify this operating room image into one of these categories:
 DECISION RULES:
 1. Primary signal: presence/state of the patient on the operating table.
 2. If no patient and no people are present, classify as IDLE.
-3. If no patient but people are actively cleaning/restocking, classify as TURNOVER.
-4. If patient is present but no active surgical instruments are being used on them, classify as PATIENT_IN_ROOM.
-5. If patient is present AND surgeons are actively operating with instruments under surgical lights, classify as SURGERY_ACTIVE.
-6. Judge ONLY what is visible in this frame. Do not assume continuity from prior context.
-7. If the scene is genuinely ambiguous or unclear, return UNKNOWN.
+3. If patient is present but no active surgical instruments are being used on them, classify as PATIENT_IN_ROOM.
+4. If patient is present AND surgeons are actively operating with instruments under surgical lights, classify as SURGERY_ACTIVE.
+5. Judge ONLY what is visible in this frame. Do not assume continuity from prior context.
+6. If the scene is genuinely ambiguous or unclear, return UNKNOWN.
 
 Respond with only the category name (one word).

@@ -1,6 +1,5 @@
 const PHASE_COLORS = {
   IDLE: '#6b7280',
-  TURNOVER: '#f59e0b',
   PATIENT_IN_ROOM: '#3b82f6',
   SURGERY_ACTIVE: '#ef4444',
   UNKNOWN: '#9ca3af',
@@ -48,11 +47,6 @@ export default function StatsSummary({ stats }) {
   return (
     <div className="stats-summary">
       <h2>Distribution</h2>
-      {stats.avg_confidence != null && (
-        <div className="stat-avg">
-          Avg confidence: <strong>{(stats.avg_confidence * 100).toFixed(1)}%</strong>
-        </div>
-      )}
       <Section title="Phase" items={stats.by_phase} colorMap={PHASE_COLORS} />
       <Section title="Camera" items={stats.by_camera} />
       {stats.by_surgery_type?.length > 1 && (

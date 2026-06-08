@@ -7,6 +7,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .data import DATA_DIR, get_filter_options, get_images, get_stats
+from .eval_data import (
+    compare_models,
+    get_eval_filter_options,
+    get_eval_results,
+    list_models,
+    register_model,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -32,8 +39,7 @@ def list_images(
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
-    confidence_min: Optional[float] = None,
-    confidence_max: Optional[float] = None,
+    model_id: Optional[str] = None,
 ):
     return get_images(
         page=page,
@@ -43,8 +49,7 @@ def list_images(
         camera=camera,
         procedure_id=procedure_id,
         take_id=take_id,
-        confidence_min=confidence_min,
-        confidence_max=confidence_max,
+        model_id=model_id,
     )
 
 
@@ -60,8 +65,6 @@ def stats(
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
-    confidence_min: Optional[float] = None,
-    confidence_max: Optional[float] = None,
 ):
     return get_stats(
         phase=phase,
@@ -69,9 +72,73 @@ def stats(
         camera=camera,
         procedure_id=procedure_id,
         take_id=take_id,
-        confidence_min=confidence_min,
-        confidence_max=confidence_max,
     )
+
+
+@app.get("/api/eval/models")
+def eval_list_models():
+    return list_models()
+
+
+@app.get("/api/eval/filters")
+def eval_filters():
+    return get_eval_filter_options()
+
+
+@app.get("/api/eval/results/{model_id}")
+def eval_results(
+    model_id: str,
+    phase: Optional[str] = None,
+    surgery_type: Optional[str] = None,
+    camera: Optional[str] = None,
+    procedure_id: Optional[int] = None,
+    take_id: Optional[int] = None,
+):
+    result = get_eval_results(
+        model_id,
+        phase=phase,
+        surgery_type=surgery_type,
+        camera=camera,
+        procedure_id=procedure_id,
+        take_id=take_id,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return result
+
+
+@app.get("/api/eval/compare")
+def eval_compare(
+    model_ids: str = Query(..., description="Comma-separated model IDs"),
+    phase: Optional[str] = None,
+    surgery_type: Optional[str] = None,
+    camera: Optional[str] = None,
+    procedure_id: Optional[int] = None,
+    take_id: Optional[int] = None,
+):
+    ids = [mid.strip() for mid in model_ids.split(",")]
+    result = compare_models(
+        ids,
+        phase=phase,
+        surgery_type=surgery_type,
+        camera=camera,
+        procedure_id=procedure_id,
+        take_id=take_id,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="No models found")
+    return result
+
+
+@app.post("/api/eval/register")
+def eval_register(
+    model_id: str,
+    model_name: str,
+    prompt_file: str,
+    description: str = "",
+    labels_file: str = "test_labels.csv",
+):
+    return register_model(model_id, model_name, prompt_file, description, labels_file)
 
 
 if STATIC_DIR.is_dir():
