@@ -24,6 +24,12 @@ from typing import Any
 from openai import AsyncOpenAI
 from tqdm.asyncio import tqdm
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+except ImportError:
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -34,7 +40,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROMPT_PATH = Path("prompts/or_phase.txt")
 DATA_DIR = Path("data/exocentric_rgb")
 OUTPUT_DIR = Path("output")
-VALID_PHASES = {"IDLE", "TURNOVER", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
+VALID_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,15 +51,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concurrency", type=int, default=10, help="Number of concurrent requests")
     parser.add_argument("--limit", type=int, help="Limit number of images to process")
     parser.add_argument("--dry-run", action="store_true", help="List images without submitting")
+    parser.add_argument("--rephase", help="Force re-labeling of images currently labeled with this phase (e.g. TURNOVER)")
     return parser.parse_args()
 
 
 def get_client() -> AsyncOpenAI:
     base_url = os.getenv("OPENAI_BASE_URL")
-    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("MOONSHOT_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        logger.error("Set OPENAI_API_KEY, MOONSHOT_API_KEY, or GEMINI_API_KEY environment variable")
-        sys.exit(1)
+    if base_url and "googleapis" in base_url:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            logger.error("GEMINI_API_KEY required when using Google base URL")
+            sys.exit(1)
+    elif base_url and "moonshot" in base_url:
+        api_key = os.getenv("MOONSHOT_API_KEY")
+        if not api_key:
+            logger.error("MOONSHOT_API_KEY required when using Moonshot base URL")
+            sys.exit(1)
+    else:
+        api_key = os.getenv("OPENAI_API_KEY") or os.getenv("MOONSHOT_API_KEY") or os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            logger.error("Set OPENAI_API_KEY, MOONSHOT_API_KEY, or GEMINI_API_KEY environment variable")
+            sys.exit(1)
     kwargs: dict[str, Any] = {"api_key": api_key}
     if base_url:
         kwargs["base_url"] = base_url
@@ -103,6 +121,20 @@ def load_existing_labels(output_csv: Path) -> set[str]:
                 labeled.add(path)
     logger.info("Found %d already labeled images in %s", len(labeled), output_csv)
     return labeled
+
+
+def load_phase_map(output_csv: Path) -> dict[str, str]:
+    if not output_csv.exists():
+        return {}
+    phase_map = {}
+    with open(output_csv) as f:
+        next(f, None)
+        for line in f:
+            if line.strip():
+                parts = line.split(",")
+                if len(parts) >= 8:
+                    phase_map[parts[0]] = parts[7]
+    return phase_map
 
 
 def image_to_base64(path: Path) -> str:
@@ -216,6 +248,26 @@ def append_to_csv(results: list[dict[str, Any]], output_csv: Path) -> None:
         writer.writerows(results)
 
 
+def update_csv_rows(results: list[dict[str, Any]], output_csv: Path) -> None:
+    if not output_csv.exists():
+        append_to_csv(results, output_csv)
+        return
+    fieldnames = ["path", "split", "surgery_type", "procedure_id", "take_id", "camera", "frame_id", "phase", "confidence", "key_visual_cues", "error"]
+    updated_paths = {r["path"] for r in results}
+    rows = []
+    with open(output_csv) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row.get("path") in updated_paths:
+                continue
+            rows.append(row)
+    rows.extend(results)
+    with open(output_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 async def process_batch(
     client: AsyncOpenAI,
     images: list[Path],
@@ -223,6 +275,7 @@ async def process_batch(
     model: str,
     concurrency: int,
     output_csv: Path,
+    update_mode: bool = False,
 ) -> tuple[int, int]:
     semaphore = asyncio.Semaphore(concurrency)
     tasks = [label_image(client, img, prompt, model, semaphore) for img in images]
@@ -234,7 +287,10 @@ async def process_batch(
         batch_tasks = tasks[i : i + batch_size]
         batch_results = await asyncio.gather(*batch_tasks)
         results.extend(batch_results)
-        append_to_csv(batch_results, output_csv)
+        if update_mode:
+            update_csv_rows(batch_results, output_csv)
+        else:
+            append_to_csv(batch_results, output_csv)
         for r in batch_results:
             if r["error"]:
                 errors += 1
@@ -247,19 +303,35 @@ async def main_async() -> int:
     args = parse_args()
     client = get_client()
     prompt = load_prompt(args.prompt)
-    images = discover_images(args.split, args.limit)
-    output_csv = OUTPUT_DIR / f"{args.split}_labels.csv"
-    existing = load_existing_labels(output_csv)
-    to_process = [img for img in images if str(img.relative_to(DATA_DIR)) not in existing]
+    if args.rephase:
+        split_dir = DATA_DIR / args.split
+        all_images = sorted(split_dir.rglob("*.png"))
+        output_csv = OUTPUT_DIR / f"{args.split}_labels.csv"
+        phase_map = load_phase_map(output_csv)
+        to_process = [
+            img for img in all_images
+            if str(img.relative_to(DATA_DIR)) in phase_map
+            and phase_map.get(str(img.relative_to(DATA_DIR))) == args.rephase
+        ]
+        if args.limit:
+            to_process = to_process[:args.limit]
+        existing = load_existing_labels(output_csv)
+        logger.info("Re-labeling %d images with phase %s", len(to_process), args.rephase)
+    else:
+        images = discover_images(args.split, args.limit)
+        output_csv = OUTPUT_DIR / f"{args.split}_labels.csv"
+        existing = load_existing_labels(output_csv)
+        to_process = [img for img in images if str(img.relative_to(DATA_DIR)) not in existing]
     if not to_process:
-        logger.info("All images already labeled")
+        logger.info("No images to process")
         return 0
     logger.info("Processing %d images (%d already labeled)", len(to_process), len(existing))
     if args.dry_run:
         logger.info("Dry run: would process %d images", len(to_process))
         return 0
     start_time = time.time()
-    success, errors = await process_batch(client, to_process, prompt, args.model, args.concurrency, output_csv)
+    update_mode = bool(args.rephase)
+    success, errors = await process_batch(client, to_process, prompt, args.model, args.concurrency, output_csv, update_mode=update_mode)
     elapsed = time.time() - start_time
     logger.info("=" * 50)
     logger.info("LABELING COMPLETE")

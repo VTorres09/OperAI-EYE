@@ -1,6 +1,16 @@
+import { useState, useEffect } from 'react'
 import StatsSummary from './StatsSummary'
 
 export default function FilterPanel({ filterOptions, filters, stats, onChange }) {
+  const [models, setModels] = useState([])
+
+  useEffect(() => {
+    fetch('/api/eval/models')
+      .then((r) => r.json())
+      .then((data) => setModels(data))
+      .catch((err) => console.error('Failed to fetch models:', err))
+  }, [])
+
   const update = (key, value) => {
     onChange({ ...filters, [key]: value })
   }
@@ -11,12 +21,24 @@ export default function FilterPanel({ filterOptions, filters, stats, onChange })
 
   if (!filterOptions) return null
 
-  const confMin = filterOptions.confidence_range?.[0] ?? 0
-  const confMax = filterOptions.confidence_range?.[1] ?? 1
-
   return (
     <aside className="filter-panel">
       <h2>Filters</h2>
+
+      <label>
+        Model
+        <select
+          value={filters.model_id || ''}
+          onChange={(e) => update('model_id', e.target.value)}
+        >
+          <option value="">None</option>
+          {models.map((m) => (
+            <option key={m.model_id} value={m.model_id}>
+              {m.model_name}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <label>
         Phase
@@ -66,28 +88,6 @@ export default function FilterPanel({ filterOptions, filters, stats, onChange })
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
-      </label>
-
-      <label className="range-label">
-        Confidence: {filters.confidence_min ?? confMin} - {filters.confidence_max ?? confMax}
-        <div className="range-inputs">
-          <input
-            type="range"
-            min={confMin}
-            max={confMax}
-            step="0.01"
-            value={filters.confidence_min ?? confMin}
-            onChange={(e) => update('confidence_min', parseFloat(e.target.value))}
-          />
-          <input
-            type="range"
-            min={confMin}
-            max={confMax}
-            step="0.01"
-            value={filters.confidence_max ?? confMax}
-            onChange={(e) => update('confidence_max', parseFloat(e.target.value))}
-          />
-        </div>
       </label>
 
       <button className="reset-btn" onClick={reset}>Reset Filters</button>

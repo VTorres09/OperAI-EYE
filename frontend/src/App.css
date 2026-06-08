@@ -39,6 +39,34 @@ body {
   font-weight: 600;
 }
 
+.app-nav {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.nav-button {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.nav-button:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.nav-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
 .total-count {
   color: var(--text-muted);
   font-size: 0.875rem;
@@ -214,6 +242,23 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: white;
+}
+
+.image-card-badges {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.phase-badge.model-badge {
+  font-size: 0.65rem;
+  opacity: 0.85;
+}
+
+.modal-badges {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
 }
 
 .image-card-meta {
