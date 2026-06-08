@@ -1,4 +1,5 @@
 from pathlib import Path
+from threading import Lock, Thread
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
@@ -6,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .data import DATA_DIR, get_filter_options, get_images, get_stats
+from hf_dataset import DatasetPreparationError, dataset_status, prepare_hf_dataset
+
+from .data import DATA_DIR, get_filter_options, get_images, get_stats, reset_cache
 from .eval_data import (
     compare_models,
     get_eval_filter_options,
@@ -26,8 +29,75 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if DATA_DIR.exists():
-    app.mount("/images", StaticFiles(directory=str(DATA_DIR)), name="images")
+_dataset_download_lock = Lock()
+_dataset_download_state = {
+    "state": "idle",
+    "message": "",
+    "error": None,
+}
+
+
+def _set_dataset_download_state(state: str, message: str = "", error: str | None = None) -> None:
+    with _dataset_download_lock:
+        _dataset_download_state.update({"state": state, "message": message, "error": error})
+
+
+def _get_dataset_download_state() -> dict:
+    with _dataset_download_lock:
+        return dict(_dataset_download_state)
+
+
+def _download_dataset_job() -> None:
+    _set_dataset_download_state("running", "Downloading dataset from Hugging Face")
+    try:
+        status = prepare_hf_dataset()
+    except DatasetPreparationError as exc:
+        _set_dataset_download_state("error", "Dataset download failed", str(exc))
+        return
+    except Exception as exc:
+        _set_dataset_download_state("error", "Dataset download failed", str(exc))
+        return
+
+    reset_cache()
+    _set_dataset_download_state(
+        "complete",
+        f"Dataset ready with {status['image_count']} images",
+    )
+
+
+@app.get("/api/dataset/status")
+def get_dataset_status():
+    status = dataset_status()
+    status["download"] = _get_dataset_download_state()
+    return status
+
+
+@app.post("/api/dataset/download")
+def download_dataset():
+    status = dataset_status()
+    download = _get_dataset_download_state()
+    if status["ready"]:
+        return {**status, "download": download}
+    if download["state"] == "running":
+        return {**status, "download": download}
+
+    _set_dataset_download_state("running", "Starting dataset download")
+    Thread(target=_download_dataset_job, daemon=True).start()
+    status = dataset_status()
+    status["download"] = _get_dataset_download_state()
+    return status
+
+
+@app.get("/images/{image_path:path}", include_in_schema=False)
+def serve_image(image_path: str):
+    requested_path = Path(image_path)
+    if requested_path.is_absolute() or ".." in requested_path.parts:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    file_path = DATA_DIR / requested_path
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(file_path)
 
 
 @app.get("/api/images")

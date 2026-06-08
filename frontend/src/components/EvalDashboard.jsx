@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import ModelSelector from './ModelSelector'
 import MetricsDisplay from './MetricsDisplay'
 import ConfusionMatrix from './ConfusionMatrix'
@@ -13,18 +13,7 @@ function EvalDashboard() {
   const [filterOptions, setFilterOptions] = useState(null)
   const [filters, setFilters] = useState({})
 
-  useEffect(() => {
-    fetchModels()
-    fetchFilterOptions()
-  }, [])
-
-  useEffect(() => {
-    if (selectedModels.length > 0) {
-      fetchResults()
-    }
-  }, [selectedModels, filters])
-
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     try {
       const res = await fetch('/api/eval/models')
       const data = await res.json()
@@ -32,9 +21,9 @@ function EvalDashboard() {
     } catch (err) {
       console.error('Failed to fetch models:', err)
     }
-  }
+  }, [])
 
-  const fetchFilterOptions = async () => {
+  const fetchFilterOptions = useCallback(async () => {
     try {
       const res = await fetch('/api/eval/filters')
       const data = await res.json()
@@ -42,17 +31,17 @@ function EvalDashboard() {
     } catch (err) {
       console.error('Failed to fetch filter options:', err)
     }
-  }
+  }, [])
 
-  const buildFilterParams = () => {
+  const buildFilterParams = useCallback(() => {
     const params = new URLSearchParams()
     Object.entries(filters).forEach(([key, val]) => {
       if (val !== undefined && val !== null && val !== '') params.set(key, val)
     })
     return params
-  }
+  }, [filters])
 
-  const fetchResults = async () => {
+  const fetchResults = useCallback(async () => {
     setLoading(true)
     try {
       const newResults = {}
@@ -78,7 +67,23 @@ function EvalDashboard() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [buildFilterParams, selectedModels])
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      fetchModels()
+      fetchFilterOptions()
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [fetchModels, fetchFilterOptions])
+
+  useEffect(() => {
+    if (selectedModels.length === 0) return undefined
+    const id = window.setTimeout(() => {
+      fetchResults()
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [selectedModels, filters, fetchResults])
 
   const handleModelToggle = (modelId) => {
     setSelectedModels(prev =>

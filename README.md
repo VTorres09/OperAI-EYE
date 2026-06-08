@@ -22,6 +22,14 @@ uv sync
 
 ## Pipeline
 
+### Prepare the private test dataset
+
+```bash
+HF_TOKEN=hf_... uv run python prepare_hf_dataset.py
+```
+
+This downloads `OperAI-Research/operai-eye-exocentric-rgb-test` into the Hugging Face cache, copies `labels/test_labels.csv` to `output/test_labels.csv` if needed, and symlinks `data/exocentric_rgb/test` to the cached snapshot.
+
 ### 1. Download data
 
 ```bash
@@ -47,10 +55,12 @@ Environment variables:
 ### 3. Evaluate model
 
 ```bash
-python evaluate_moondream.py --labels output/validation_labels.csv [--limit N]
+python evaluate_moondream.py [--labels output/test_labels.csv] [--limit N]
 ```
 
 Runs [Moondream2](https://huggingface.co/vikhyatk/moondream2) locally and compares predictions against API labels. Outputs `output/eval_results.csv` and `output/eval_metrics.json`.
+
+By default, evaluation prepares the private HF test dataset first. Evaluation CSV/JSON files under `output/eval_*` are intentionally committable; the dataset and labels remain ignored.
 
 ## Visualization
 
@@ -59,6 +69,8 @@ uv run python run.py [--port 8000] [--reload]
 ```
 
 Builds the React frontend and starts a FastAPI server serving both the API (`/api/*`) and the SPA on a single port.
+
+If the private test dataset is not local, the Explorer view shows a download button. The download uses `HF_TOKEN` from `.env` or the environment and stores images in the Hugging Face cache rather than duplicating them under `data/`.
 
 For frontend-only development:
 

@@ -26,6 +26,15 @@ from PIL import Image
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
+from hf_dataset import (
+    DATA_DIR as DEFAULT_DATA_DIR,
+    HF_DATASET_REPO_ID,
+    HF_DATASET_REVISION,
+    LABELS_PATH as DEFAULT_LABELS_PATH,
+    DatasetPreparationError,
+    prepare_hf_dataset,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -41,7 +50,8 @@ VALID_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate Moondream on labeled OR images.")
-    parser.add_argument("--labels", type=Path, required=True, help="Path to labels CSV")
+    parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_PATH, help="Path to labels CSV")
+    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="Image root directory")
     parser.add_argument("--output", type=Path, help="Output CSV path (default: output/eval_results.csv)")
     parser.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT_PATH, help="Prompt file path")
     parser.add_argument("--model", default="vikhyatk/moondream2", help="Moondream model name")
@@ -53,6 +63,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-id", help="Unique model ID for versioning (auto-generated if not provided)")
     parser.add_argument("--model-name", help="Human-readable model name")
     parser.add_argument("--description", default="", help="Description of this evaluation run")
+    parser.add_argument(
+        "--prepare-dataset",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Download/prepare the private HF test dataset before evaluation.",
+    )
+    parser.add_argument("--dataset-repo-id", default=HF_DATASET_REPO_ID)
+    parser.add_argument("--dataset-revision", default=HF_DATASET_REVISION)
+    parser.add_argument("--dataset-max-workers", type=int, default=8)
+    parser.add_argument("--dataset-local-files-only", action="store_true")
     return parser.parse_args()
 
 
@@ -187,6 +207,25 @@ def main() -> int:
     from datetime import datetime
     
     args = parse_args()
+    if args.prepare_dataset:
+        try:
+            status = prepare_hf_dataset(
+                repo_id=args.dataset_repo_id,
+                revision=args.dataset_revision,
+                data_dir=args.data_dir,
+                labels_path=args.labels,
+                max_workers=args.dataset_max_workers,
+                local_files_only=args.dataset_local_files_only,
+            )
+        except DatasetPreparationError as exc:
+            logger.error("%s", exc)
+            return 1
+        logger.info(
+            "Dataset ready: %d images at %s",
+            status["image_count"],
+            status["split_path"],
+        )
+
     device = get_device(args.device)
     prompt = load_prompt(args.prompt)
     labels = load_labels(args.labels)
@@ -220,7 +259,7 @@ def main() -> int:
             writer.writeheader()
         for i, row in enumerate(tqdm(to_evaluate, desc="Evaluating")):
             image_rel_path = row["path"]
-            image_path = DATA_DIR / image_rel_path
+            image_path = args.data_dir / image_rel_path
             if not image_path.exists():
                 logger.warning("Image not found: %s", image_path)
                 errors += 1
