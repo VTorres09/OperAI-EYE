@@ -163,6 +163,7 @@ def eval_results(
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
+    merge_patient_and_surgery: bool = False,
 ):
     result = get_eval_results(
         model_id,
@@ -171,6 +172,7 @@ def eval_results(
         camera=camera,
         procedure_id=procedure_id,
         take_id=take_id,
+        merge_patient_and_surgery=merge_patient_and_surgery,
     )
     if not result:
         raise HTTPException(status_code=404, detail="Model not found")
@@ -185,6 +187,7 @@ def eval_compare(
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
+    merge_patient_and_surgery: bool = False,
 ):
     ids = [mid.strip() for mid in model_ids.split(",")]
     result = compare_models(
@@ -194,6 +197,7 @@ def eval_compare(
         camera=camera,
         procedure_id=procedure_id,
         take_id=take_id,
+        merge_patient_and_surgery=merge_patient_and_surgery,
     )
     if not result:
         raise HTTPException(status_code=404, detail="No models found")
