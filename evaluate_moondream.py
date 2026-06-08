@@ -26,6 +26,15 @@ from PIL import Image
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
+from hf_dataset import (
+    DATA_DIR as DEFAULT_DATA_DIR,
+    HF_DATASET_REPO_ID,
+    HF_DATASET_REVISION,
+    LABELS_PATH as DEFAULT_LABELS_PATH,
+    DatasetPreparationError,
+    prepare_hf_dataset,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -36,12 +45,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROMPT_PATH = Path("prompts/or_phase_simple.txt")
 DATA_DIR = Path("data/exocentric_rgb")
 OUTPUT_DIR = Path("output")
-VALID_PHASES = {"IDLE", "TURNOVER", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
+VALID_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate Moondream on labeled OR images.")
-    parser.add_argument("--labels", type=Path, required=True, help="Path to labels CSV")
+    parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_PATH, help="Path to labels CSV")
+    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="Image root directory")
     parser.add_argument("--output", type=Path, help="Output CSV path (default: output/eval_results.csv)")
     parser.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT_PATH, help="Prompt file path")
     parser.add_argument("--model", default="vikhyatk/moondream2", help="Moondream model name")
@@ -49,6 +59,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=["mps", "cuda", "cpu"], help="Device to use")
     parser.add_argument("--limit", type=int, help="Limit number of images to evaluate")
     parser.add_argument("--compile", action="store_true", help="Compile model for speed")
+    parser.add_argument("--batch-size", type=int, default=8, help="Number of images to process before clearing GPU cache (default: 8 for 24GB L4 GPU)")
+    parser.add_argument("--model-id", help="Unique model ID for versioning (auto-generated if not provided)")
+    parser.add_argument("--model-name", help="Human-readable model name")
+    parser.add_argument("--description", default="", help="Description of this evaluation run")
+    parser.add_argument(
+        "--prepare-dataset",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Download/prepare the private HF test dataset before evaluation.",
+    )
+    parser.add_argument("--dataset-repo-id", default=HF_DATASET_REPO_ID)
+    parser.add_argument("--dataset-revision", default=HF_DATASET_REVISION)
+    parser.add_argument("--dataset-max-workers", type=int, default=8)
+    parser.add_argument("--dataset-local-files-only", action="store_true")
     return parser.parse_args()
 
 
@@ -127,10 +151,6 @@ def evaluate_image(model: Any, image_path: Path, prompt: str) -> dict[str, Any]:
         return parse_response(answer)
     finally:
         image.close()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        elif hasattr(torch, 'mps') and torch.backends.mps.is_available():
-            torch.mps.empty_cache()
 
 
 def compute_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -184,13 +204,43 @@ def load_existing_eval_results(output_path: Path) -> set[str]:
 
 
 def main() -> int:
+    from datetime import datetime
+    
     args = parse_args()
+    if args.prepare_dataset:
+        try:
+            status = prepare_hf_dataset(
+                repo_id=args.dataset_repo_id,
+                revision=args.dataset_revision,
+                data_dir=args.data_dir,
+                labels_path=args.labels,
+                max_workers=args.dataset_max_workers,
+                local_files_only=args.dataset_local_files_only,
+            )
+        except DatasetPreparationError as exc:
+            logger.error("%s", exc)
+            return 1
+        logger.info(
+            "Dataset ready: %d images at %s",
+            status["image_count"],
+            status["split_path"],
+        )
+
     device = get_device(args.device)
     prompt = load_prompt(args.prompt)
     labels = load_labels(args.labels)
     if args.limit:
         labels = labels[: args.limit]
-    output_path = args.output or OUTPUT_DIR / "eval_results.csv"
+    
+    # Handle model versioning
+    model_id = args.model_id
+    if model_id:
+        output_path = args.output or OUTPUT_DIR / f"eval_results_{model_id}.csv"
+        model_name = args.model_name or f"{args.model} ({args.revision})"
+    else:
+        output_path = args.output or OUTPUT_DIR / "eval_results.csv"
+        model_name = None
+    
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     existing = load_existing_eval_results(output_path)
     to_evaluate = [row for row in labels if row["path"] not in existing]
@@ -207,9 +257,9 @@ def main() -> int:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         if not file_exists:
             writer.writeheader()
-        for row in tqdm(to_evaluate, desc="Evaluating"):
+        for i, row in enumerate(tqdm(to_evaluate, desc="Evaluating")):
             image_rel_path = row["path"]
-            image_path = DATA_DIR / image_rel_path
+            image_path = args.data_dir / image_rel_path
             if not image_path.exists():
                 logger.warning("Image not found: %s", image_path)
                 errors += 1
@@ -235,6 +285,12 @@ def main() -> int:
             writer.writerow(result)
             f.flush()
             results_count += 1
+            # Clear GPU cache only at batch boundaries to maximize throughput
+            if (i + 1) % args.batch_size == 0:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                elif hasattr(torch, 'mps') and torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
     logger.info("Evaluated %d images, errors: %d", results_count, errors)
     all_results = []
     with open(output_path) as f:
@@ -249,7 +305,7 @@ def main() -> int:
     logger.info("Errors: %d", errors)
     logger.info("-" * 50)
     logger.info("Per-class metrics:")
-    for phase in ["IDLE", "TURNOVER", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"]:
+    for phase in ["IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"]:
         stats = metrics["per_class"].get(phase, {"total": 0, "correct": 0, "precision": 0, "recall": 0, "f1": 0})
         logger.info(
             "  %s: n=%d, acc=%.2f%%, P=%.2f, R=%.2f, F1=%.2f",
@@ -261,9 +317,30 @@ def main() -> int:
             stats["f1"],
         )
     logger.info("=" * 50)
-    metrics_path = OUTPUT_DIR / "eval_metrics.json"
+    
+    # Save metrics
+    if model_id:
+        metrics_path = OUTPUT_DIR / f"eval_metrics_{model_id}.json"
+    else:
+        metrics_path = OUTPUT_DIR / "eval_metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2))
     logger.info("Saved metrics to %s", metrics_path)
+    
+    # Auto-register if model_id provided
+    if model_id:
+        try:
+            from app.eval_data import register_model
+            register_model(
+                model_id=model_id,
+                model_name=model_name,
+                prompt_file=str(args.prompt),
+                description=args.description,
+                labels_file=str(args.labels.name),
+            )
+            logger.info("Registered model as '%s' in evaluation metadata", model_id)
+        except Exception as e:
+            logger.warning("Failed to register model: %s", e)
+    
     return 0
 
 

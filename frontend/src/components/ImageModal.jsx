@@ -13,12 +13,13 @@ export default function ImageModal({ item, onClose }) {
 
   const PHASE_COLORS = {
     IDLE: '#6b7280',
-    TURNOVER: '#f59e0b',
     PATIENT_IN_ROOM: '#3b82f6',
     SURGERY_ACTIVE: '#ef4444',
     UNKNOWN: '#9ca3af',
   }
   const color = PHASE_COLORS[item.phase] || '#9ca3af'
+  const hasModelPred = item.model_predicted != null
+  const modelColor = hasModelPred ? PHASE_COLORS[item.model_predicted] || '#9ca3af' : null
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -26,9 +27,20 @@ export default function ImageModal({ item, onClose }) {
         <button className="modal-close" onClick={onClose}>&times;</button>
         <img src={item.image_url} alt={item.path} className="modal-image" />
         <div className="modal-info">
-          <span className="phase-badge" style={{ backgroundColor: color }}>
-            {item.phase}
-          </span>
+          <div className="modal-badges">
+            <span className="phase-badge" style={{ backgroundColor: color }}>
+              {item.phase}
+            </span>
+            {hasModelPred && (
+              <span
+                className="phase-badge model-badge"
+                style={{ backgroundColor: modelColor }}
+                title="Model prediction"
+              >
+                {item.model_predicted}
+              </span>
+            )}
+          </div>
           <div className="modal-details">
             <div><strong>Camera:</strong> {item.camera}</div>
             <div><strong>Confidence:</strong> {(item.confidence * 100).toFixed(0)}%</div>

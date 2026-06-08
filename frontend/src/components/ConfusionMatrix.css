@@ -1,0 +1,56 @@
+.confusion-matrix {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.confusion-matrix h4 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.matrix-container {
+  overflow-x: auto;
+}
+
+.confusion-matrix table {
+  border-collapse: collapse;
+  margin: 0 auto;
+}
+
+.confusion-matrix th {
+  padding: 0.75rem;
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.confusion-matrix th[colspan] {
+  text-align: center;
+  border-bottom: 2px solid var(--border);
+}
+
+.matrix-cell {
+  padding: 0.75rem;
+  text-align: center;
+  font-weight: 600;
+  color: white;
+  min-width: 60px;
+  border: 2px solid var(--surface);
+  transition: transform 0.15s;
+}
+
+.matrix-cell:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.matrix-cell.correct {
+  font-weight: 700;
+}
+
+.matrix-cell.incorrect {
+  opacity: 0.9;
+}

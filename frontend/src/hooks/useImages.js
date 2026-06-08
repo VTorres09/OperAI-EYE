@@ -91,6 +91,12 @@ function createImageStore() {
     }
   }
 
+  function refresh() {
+    loadFilterOptions()
+    fetchPage(1)
+    fetchStats()
+  }
+
   function getSnapshot() {
     return state
   }
@@ -104,7 +110,7 @@ function createImageStore() {
   fetchPage(1)
   fetchStats()
 
-  return { getSnapshot, subscribe, updateFilters, loadMore }
+  return { getSnapshot, subscribe, updateFilters, loadMore, refresh }
 }
 
 const store = createImageStore()
@@ -115,5 +121,6 @@ export function useImages() {
     ...state,
     updateFilters: store.updateFilters,
     loadMore: store.loadMore,
+    refresh: store.refresh,
   }
 }

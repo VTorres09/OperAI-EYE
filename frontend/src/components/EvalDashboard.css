@@ -1,0 +1,142 @@
+.eval-dashboard {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.eval-header {
+  margin-bottom: 2rem;
+}
+
+.eval-header h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.75rem;
+  color: var(--text);
+}
+
+.eval-description {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.eval-filters {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.eval-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.eval-filters select {
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.eval-filters select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.eval-filters .eval-checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  min-height: 2.25rem;
+  align-self: flex-end;
+  cursor: pointer;
+}
+
+.eval-checkbox-label input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.loading {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 2px dashed var(--border);
+}
+
+.single-model-view {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.comparison-view {
+  margin-top: 2rem;
+}
+
+.comparison-view h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+  color: var(--text);
+}
+
+.comparison-table {
+  overflow-x: auto;
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.comparison-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.comparison-table th {
+  background: var(--bg);
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 2px solid var(--border);
+}
+
+.comparison-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.comparison-table tr:hover {
+  background: var(--bg);
+}
+
+.comparison-table .accuracy {
+  font-weight: 600;
+  color: #059669;
+}
