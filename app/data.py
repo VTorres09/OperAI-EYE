@@ -6,12 +6,31 @@ import pandas as pd
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "exocentric_rgb"
 CSV_PATH = Path(__file__).resolve().parent.parent / "output" / "test_labels.csv"
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
+LABEL_COLUMNS = [
+    "path",
+    "split",
+    "surgery_type",
+    "procedure_id",
+    "take_id",
+    "camera",
+    "frame_id",
+    "phase",
+    "confidence",
+    "key_visual_cues",
+]
 
 _df: Optional[pd.DataFrame] = None
 
 
+def reset_cache() -> None:
+    global _df
+    _df = None
+
+
 def get_df() -> pd.DataFrame:
     global _df
+    if not CSV_PATH.exists():
+        return pd.DataFrame(columns=LABEL_COLUMNS)
     if _df is None:
         _df = pd.read_csv(CSV_PATH, dtype={"frame_id": str})
         _df["confidence"] = pd.to_numeric(_df["confidence"], errors="coerce")

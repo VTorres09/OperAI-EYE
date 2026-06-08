@@ -221,7 +221,10 @@ __marimo__/
 
 # data
 data/
-output/
+output/*
+!output/eval_results*.csv
+!output/eval_metrics*.json
+!output/eval_metadata.json
 
 # frontend build output
 static/
