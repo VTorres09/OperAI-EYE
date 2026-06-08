@@ -12,6 +12,7 @@ function EvalDashboard() {
   const [loading, setLoading] = useState(false)
   const [filterOptions, setFilterOptions] = useState(null)
   const [filters, setFilters] = useState({})
+  const [mergePatientAndSurgery, setMergePatientAndSurgery] = useState(false)
 
   const fetchModels = useCallback(async () => {
     try {
@@ -38,8 +39,11 @@ function EvalDashboard() {
     Object.entries(filters).forEach(([key, val]) => {
       if (val !== undefined && val !== null && val !== '') params.set(key, val)
     })
+    if (mergePatientAndSurgery) {
+      params.set('merge_patient_and_surgery', 'true')
+    }
     return params
-  }, [filters])
+  }, [filters, mergePatientAndSurgery])
 
   const fetchResults = useCallback(async () => {
     setLoading(true)
@@ -83,7 +87,7 @@ function EvalDashboard() {
       fetchResults()
     }, 0)
     return () => window.clearTimeout(id)
-  }, [selectedModels, filters, fetchResults])
+  }, [selectedModels, filters, mergePatientAndSurgery, fetchResults])
 
   const handleModelToggle = (modelId) => {
     setSelectedModels(prev =>
@@ -99,6 +103,7 @@ function EvalDashboard() {
 
   const resetFilters = () => {
     setFilters({})
+    setMergePatientAndSurgery(false)
   }
 
   return (
@@ -156,6 +161,14 @@ function EvalDashboard() {
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
+          </label>
+          <label className="eval-checkbox-label">
+            <input
+              type="checkbox"
+              checked={mergePatientAndSurgery}
+              onChange={(e) => setMergePatientAndSurgery(e.target.checked)}
+            />
+            Merge patient/surgery
           </label>
           <button className="reset-btn" onClick={resetFilters} style={{ alignSelf: 'flex-end' }}>
             Reset

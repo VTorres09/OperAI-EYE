@@ -8,6 +8,8 @@ OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "exocentric_rgb"
 LABELS_CSV = OUTPUT_DIR / "test_labels.csv"
 METADATA_FILE = OUTPUT_DIR / "eval_metadata.json"
+PATIENT_SURGERY_CLASSES = {"PATIENT_IN_ROOM", "SURGERY_ACTIVE"}
+MERGED_PATIENT_SURGERY_CLASS = "PATIENT_PRESENT"
 
 
 def get_metadata() -> dict:
@@ -87,6 +89,15 @@ def _apply_eval_filters(
     return df[mask]
 
 
+def _merge_patient_and_surgery_classes(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    for column in ("ground_truth", "predicted"):
+        df[column] = df[column].replace(
+            {phase: MERGED_PATIENT_SURGERY_CLASS for phase in PATIENT_SURGERY_CLASSES}
+        )
+    return df
+
+
 def get_eval_filter_options() -> dict:
     df = _load_labels_df()
     if df is None:
@@ -113,6 +124,7 @@ def get_eval_results(
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
+    merge_patient_and_surgery: bool = False,
 ) -> Optional[dict]:
     metadata = get_metadata()
     if model_id not in metadata.get("models", {}):
@@ -142,6 +154,9 @@ def get_eval_results(
             take_id=take_id,
         )
 
+    if merge_patient_and_surgery:
+        df = _merge_patient_and_surgery_classes(df)
+
     if len(df) == 0:
         return {
             "model_id": model_id,
@@ -151,6 +166,7 @@ def get_eval_results(
             "accuracy": 0,
             "per_class": {},
             "confusion_matrix": {},
+            "merge_patient_and_surgery": merge_patient_and_surgery,
         }
 
     total = len(df)
@@ -189,6 +205,7 @@ def get_eval_results(
         "accuracy": round(float(accuracy), 3),
         "per_class": per_class,
         "confusion_matrix": confusion,
+        "merge_patient_and_surgery": merge_patient_and_surgery,
     }
 
 
@@ -199,6 +216,7 @@ def compare_models(
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
+    merge_patient_and_surgery: bool = False,
 ) -> Optional[dict]:
     results = []
     for model_id in model_ids:
@@ -209,6 +227,7 @@ def compare_models(
             camera=camera,
             procedure_id=procedure_id,
             take_id=take_id,
+            merge_patient_and_surgery=merge_patient_and_surgery,
         )
         if result:
             results.append(result)
@@ -224,6 +243,7 @@ def compare_models(
     comparison = {
         "models": [],
         "classes": all_classes,
+        "merge_patient_and_surgery": merge_patient_and_surgery,
     }
 
     for r in results:

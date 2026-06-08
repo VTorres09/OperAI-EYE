@@ -56,6 +56,21 @@
   border-color: var(--accent);
 }
 
+.eval-filters .eval-checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  min-height: 2.25rem;
+  align-self: flex-end;
+  cursor: pointer;
+}
+
+.eval-checkbox-label input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .loading {
   text-align: center;
   padding: 3rem;
