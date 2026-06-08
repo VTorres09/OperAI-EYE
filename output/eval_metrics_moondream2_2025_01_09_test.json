@@ -1,0 +1,71 @@
+{
+  "total": 23000,
+  "correct": 7025,
+  "accuracy": 0.3054,
+  "per_class": {
+    "IDLE": {
+      "total": 1506,
+      "correct": 1197,
+      "precision": 0.9286,
+      "recall": 0.7948,
+      "f1": 0.8565
+    },
+    "PATIENT_IN_ROOM": {
+      "total": 15558,
+      "correct": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
+    },
+    "SURGERY_ACTIVE": {
+      "total": 5828,
+      "correct": 5828,
+      "precision": 0.2684,
+      "recall": 1.0,
+      "f1": 0.4233
+    },
+    "UNKNOWN": {
+      "total": 108,
+      "correct": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
+    }
+  },
+  "ground_truth_distribution": {
+    "IDLE": 1506,
+    "UNKNOWN": 108,
+    "PATIENT_IN_ROOM": 15558,
+    "SURGERY_ACTIVE": 5828
+  },
+  "predicted_distribution": {
+    "IDLE": 1289,
+    "SURGERY_ACTIVE": 21711
+  },
+  "confusion_matrix": {
+    "IDLE": {
+      "IDLE": 1197,
+      "PATIENT_IN_ROOM": 0,
+      "SURGERY_ACTIVE": 309,
+      "UNKNOWN": 0
+    },
+    "PATIENT_IN_ROOM": {
+      "IDLE": 64,
+      "PATIENT_IN_ROOM": 0,
+      "SURGERY_ACTIVE": 15494,
+      "UNKNOWN": 0
+    },
+    "SURGERY_ACTIVE": {
+      "IDLE": 0,
+      "PATIENT_IN_ROOM": 0,
+      "SURGERY_ACTIVE": 5828,
+      "UNKNOWN": 0
+    },
+    "UNKNOWN": {
+      "IDLE": 28,
+      "PATIENT_IN_ROOM": 0,
+      "SURGERY_ACTIVE": 80,
+      "UNKNOWN": 0
+    }
+  }
+}
