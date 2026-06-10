@@ -20,6 +20,19 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 uv sync
 ```
 
+### View the existing labels and evaluation
+
+You do not need to rerun labeling or Moondream evaluation just to use the UI. The test labels and images are stored in the private Hugging Face dataset, while the completed evaluation results are tracked in this repository.
+
+Make sure your Hugging Face account has access to `OperAI-Research/operai-eye-exocentric-rgb-test`, then run:
+
+```bash
+uv run hf auth login  # skip if already authenticated
+uv run python run.py --prepare-dataset
+```
+
+Alternatively, put `HF_TOKEN=hf_...` in `.env`. A GitHub token is only needed to clone the repository; it is not used by the data or UI runtime.
+
 ## Pipeline
 
 ### Prepare the private test dataset
@@ -65,7 +78,7 @@ By default, evaluation prepares the private HF test dataset first. Evaluation CS
 ## Visualization
 
 ```bash
-uv run python run.py [--port 8000] [--reload]
+uv run python run.py [--prepare-dataset] [--port 8000] [--reload]
 ```
 
 Builds the React frontend and starts a FastAPI server serving both the API (`/api/*`) and the SPA on a single port.
