@@ -28,10 +28,12 @@ Make sure your Hugging Face account has access to `OperAI-Research/operai-eye-ex
 
 ```bash
 uv run hf auth login  # skip if already authenticated
-uv run python run.py --prepare-dataset
+uv run python run.py
 ```
 
 Alternatively, put `HF_TOKEN=hf_...` in `.env`. A GitHub token is only needed to clone the repository; it is not used by the data or UI runtime.
+
+On the first run, `run.py` downloads the private test dataset into the Hugging Face cache. It creates local symlinks for the images and for `output/test_labels.csv`, so Hugging Face remains the source of truth. The labels are intentionally not committed to Git; only evaluation artifacts are versioned in this repository. Use `--no-prepare-dataset` only when you want to start the server without these artifacts.
 
 ## Pipeline
 
@@ -41,7 +43,7 @@ Alternatively, put `HF_TOKEN=hf_...` in `.env`. A GitHub token is only needed to
 HF_TOKEN=hf_... uv run python prepare_hf_dataset.py
 ```
 
-This downloads `OperAI-Research/operai-eye-exocentric-rgb-test` into the Hugging Face cache, copies `labels/test_labels.csv` to `output/test_labels.csv` if needed, and symlinks `data/exocentric_rgb/test` to the cached snapshot.
+This downloads `OperAI-Research/operai-eye-exocentric-rgb-test` into the Hugging Face cache and symlinks both `output/test_labels.csv` and `data/exocentric_rgb/test` to the cached snapshot.
 
 ### 1. Download data
 
@@ -78,7 +80,7 @@ By default, evaluation prepares the private HF test dataset first. Evaluation CS
 ## Visualization
 
 ```bash
-uv run python run.py [--prepare-dataset] [--port 8000] [--reload]
+uv run python run.py [--no-prepare-dataset] [--port 8000] [--reload]
 ```
 
 Builds the React frontend and starts a FastAPI server serving both the API (`/api/*`) and the SPA on a single port.

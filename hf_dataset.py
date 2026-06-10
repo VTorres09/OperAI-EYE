@@ -56,6 +56,8 @@ def dataset_status(
         "split_is_symlink": split_path.is_symlink(),
         "split_target": str(split_path.resolve()) if split_path.exists() else None,
         "labels_path": str(labels_path),
+        "labels_is_symlink": labels_path.is_symlink(),
+        "labels_target": str(labels_path.resolve()) if labels_path.exists() else None,
         "repo_id": HF_DATASET_REPO_ID,
         "revision": HF_DATASET_REVISION,
     }
@@ -73,19 +75,25 @@ def _replace_with_symlink(link_path: Path, target_path: Path) -> None:
         shutil.rmtree(link_path)
 
     link_path.parent.mkdir(parents=True, exist_ok=True)
-    link_path.symlink_to(target_path, target_is_directory=True)
+    link_path.symlink_to(target_path, target_is_directory=target_path.is_dir())
 
 
-def _copy_labels(snapshot_path: Path, labels_path: Path, overwrite: bool) -> None:
+def _link_labels(snapshot_path: Path, labels_path: Path, overwrite: bool) -> None:
     source_labels = snapshot_path / "labels" / "test_labels.csv"
     if not source_labels.exists():
         raise DatasetPreparationError(f"HF snapshot is missing labels/test_labels.csv: {snapshot_path}")
 
+    if (
+        labels_path.is_symlink()
+        and labels_path.exists()
+        and labels_path.resolve() == source_labels.resolve()
+    ):
+        return
+
     if labels_path.exists() and not overwrite:
         return
 
-    labels_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source_labels, labels_path)
+    _replace_with_symlink(labels_path, source_labels)
 
 
 def prepare_hf_dataset(
@@ -102,9 +110,9 @@ def prepare_hf_dataset(
 ) -> dict[str, Any]:
     """Download the private dataset into the HF cache and point local paths at it.
 
-    Images remain in the Hugging Face cache. The local data split becomes a
-    symlink to the cached snapshot so fresh machines and local explorers use
-    the same source of truth without keeping a second 3.2 GB copy.
+    Images and labels remain in the Hugging Face cache. Local paths become
+    symlinks to the cached snapshot so fresh machines and local explorers use
+    Hugging Face as the single source of truth.
     """
 
     try:
@@ -127,7 +135,7 @@ def prepare_hf_dataset(
         raise DatasetPreparationError(
             "Could not prepare the private Hugging Face dataset. Set HF_TOKEN "
             "with access to OperAI-Research/operai-eye-exocentric-rgb-test, "
-            "then retry."
+            f"then retry. Hugging Face error: {exc}"
         ) from exc
 
     cached_split = snapshot_path / split
@@ -141,7 +149,7 @@ def prepare_hf_dataset(
             f"HF snapshot has {image_count} PNGs, expected {expected_images}: {cached_split}"
         )
 
-    _copy_labels(snapshot_path, labels_path, overwrite=overwrite_labels)
+    _link_labels(snapshot_path, labels_path, overwrite=overwrite_labels)
     split_path = data_dir / split
     if not split_path.exists() or not split_path.is_symlink() or split_path.resolve() != cached_split.resolve():
         _replace_with_symlink(split_path, cached_split)
