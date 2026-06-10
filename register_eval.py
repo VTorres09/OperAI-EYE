@@ -20,7 +20,6 @@ def main():
     parser.add_argument("--model-name", required=True, help="Human-readable model name")
     parser.add_argument("--prompt", required=True, help="Prompt file used")
     parser.add_argument("--description", default="", help="Description of the run")
-    parser.add_argument("--labels-file", default="test_labels.csv", help="Labels file used")
     
     args = parser.parse_args()
     
@@ -29,7 +28,6 @@ def main():
         model_name=args.model_name,
         prompt_file=args.prompt,
         description=args.description,
-        labels_file=args.labels_file,
     )
     
     print(f"Registered model: {args.model_id}")

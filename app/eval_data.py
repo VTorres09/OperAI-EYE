@@ -4,12 +4,21 @@ from typing import Optional
 
 import pandas as pd
 
+from hf_dataset import (
+    HF_DATASET_REPO_ID,
+    HF_DATASET_REVISION,
+    HF_LABELS_FILE,
+    DatasetPreparationError,
+    get_hf_dataset_paths,
+)
+
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "exocentric_rgb"
-LABELS_CSV = OUTPUT_DIR / "test_labels.csv"
 METADATA_FILE = OUTPUT_DIR / "eval_metadata.json"
 PATIENT_SURGERY_CLASSES = {"PATIENT_IN_ROOM", "SURGERY_ACTIVE"}
 MERGED_PATIENT_SURGERY_CLASS = "PATIENT_PRESENT"
+DEFAULT_LABELS_SOURCE = (
+    f"hf://datasets/{HF_DATASET_REPO_ID}@{HF_DATASET_REVISION}/{HF_LABELS_FILE}"
+)
 
 
 def get_metadata() -> dict:
@@ -29,14 +38,14 @@ def register_model(
     model_name: str,
     prompt_file: str,
     description: str = "",
-    labels_file: str = "test_labels.csv",
+    labels_source: str = DEFAULT_LABELS_SOURCE,
 ) -> dict:
     metadata = get_metadata()
     metadata["models"][model_id] = {
         "model_name": model_name,
         "prompt_file": prompt_file,
         "description": description,
-        "labels_file": labels_file,
+        "labels_file": labels_source,
         "results_file": f"eval_results_{model_id}.csv",
     }
     save_metadata(metadata)
@@ -60,9 +69,11 @@ def list_models() -> list[dict]:
 
 
 def _load_labels_df() -> Optional[pd.DataFrame]:
-    if not LABELS_CSV.exists():
+    try:
+        labels_path = get_hf_dataset_paths(local_files_only=True).labels_path
+    except DatasetPreparationError:
         return None
-    df = pd.read_csv(LABELS_CSV, dtype={"frame_id": str})
+    df = pd.read_csv(labels_path, dtype={"frame_id": str})
     df = df[df["path"] != "path"].reset_index(drop=True)
     return df
 

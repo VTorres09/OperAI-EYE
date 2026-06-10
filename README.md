@@ -28,10 +28,12 @@ Make sure your Hugging Face account has access to `OperAI-Research/operai-eye-ex
 
 ```bash
 uv run hf auth login  # skip if already authenticated
-uv run python run.py --prepare-dataset
+uv run python run.py
 ```
 
 Alternatively, put `HF_TOKEN=hf_...` in `.env`. A GitHub token is only needed to clone the repository; it is not used by the data or UI runtime.
+
+On the first run, `run.py` downloads the private test dataset into the Hugging Face cache. The UI reads the images and `labels/test_labels.csv` directly from the pinned snapshot path. It does not copy or symlink dataset files into the repository. Only evaluation artifacts are versioned in Git. Use `--no-prepare-dataset` only when you want to require an already-cached snapshot.
 
 ## Pipeline
 
@@ -41,7 +43,7 @@ Alternatively, put `HF_TOKEN=hf_...` in `.env`. A GitHub token is only needed to
 HF_TOKEN=hf_... uv run python prepare_hf_dataset.py
 ```
 
-This downloads `OperAI-Research/operai-eye-exocentric-rgb-test` into the Hugging Face cache, copies `labels/test_labels.csv` to `output/test_labels.csv` if needed, and symlinks `data/exocentric_rgb/test` to the cached snapshot.
+This downloads and validates `OperAI-Research/operai-eye-exocentric-rgb-test` in the Hugging Face cache, then prints the exact snapshot, image, and labels paths used by the application.
 
 ### 1. Download data
 
@@ -68,7 +70,7 @@ Environment variables:
 ### 3. Evaluate model
 
 ```bash
-python evaluate_moondream.py [--labels output/test_labels.csv] [--limit N]
+uv run python evaluate_moondream.py [--limit N]
 ```
 
 Runs [Moondream2](https://huggingface.co/vikhyatk/moondream2) locally and compares predictions against API labels. Outputs `output/eval_results.csv` and `output/eval_metrics.json`.
@@ -78,12 +80,12 @@ By default, evaluation prepares the private HF test dataset first. Evaluation CS
 ## Visualization
 
 ```bash
-uv run python run.py [--prepare-dataset] [--port 8000] [--reload]
+uv run python run.py [--no-prepare-dataset] [--port 8000] [--reload]
 ```
 
 Builds the React frontend and starts a FastAPI server serving both the API (`/api/*`) and the SPA on a single port.
 
-If the private test dataset is not local, the Explorer view shows a download button. The download uses `HF_TOKEN` from `.env` or the environment and stores images in the Hugging Face cache rather than duplicating them under `data/`.
+If the private test dataset is not cached, the Explorer view shows a download button. The download uses `HF_TOKEN` from `.env` or the environment, and the backend reads the resulting Hugging Face snapshot directly.
 
 For frontend-only development:
 

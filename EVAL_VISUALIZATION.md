@@ -44,7 +44,6 @@ python register_eval.py \
 
 # Or use --model-id flag in evaluate_moondream.py (auto-registers on completion)
 python evaluate_moondream.py \
-  --labels output/test_labels.csv \
   --model-id moondream2_v2 \
   --model-name "Moondream2 2B (fine-tuned)" \
   --prompt prompts/or_phase_v2.txt
@@ -111,7 +110,7 @@ frontend/src/components/
 
 output/
   eval_metadata.json    # Model registry
-  eval_results.csv      # Current evaluation (symlinked)
+  eval_results.csv      # Current evaluation
   eval_results_{id}.csv # Versioned results
   eval_metrics_{id}.json # Versioned metrics
 

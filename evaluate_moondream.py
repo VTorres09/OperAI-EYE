@@ -2,9 +2,9 @@
 """Evaluate Moondream against labeled dataset.
 
 Usage:
-    python evaluate_moondream.py --labels output/validation_labels.csv
-    python evaluate_moondream.py --labels output/validation_labels.csv --output eval_results.csv
-    python evaluate_moondream.py --labels output/validation_labels.csv --limit 100
+    python evaluate_moondream.py
+    python evaluate_moondream.py --output output/eval_results.csv
+    python evaluate_moondream.py --limit 100
 """
 
 from __future__ import annotations
@@ -27,12 +27,10 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
 from hf_dataset import (
-    DATA_DIR as DEFAULT_DATA_DIR,
     HF_DATASET_REPO_ID,
     HF_DATASET_REVISION,
-    LABELS_PATH as DEFAULT_LABELS_PATH,
     DatasetPreparationError,
-    prepare_hf_dataset,
+    get_hf_dataset_paths,
 )
 
 logging.basicConfig(
@@ -43,15 +41,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROMPT_PATH = Path("prompts/or_phase_simple.txt")
-DATA_DIR = Path("data/exocentric_rgb")
 OUTPUT_DIR = Path("output")
 VALID_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate Moondream on labeled OR images.")
-    parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_PATH, help="Path to labels CSV")
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="Image root directory")
     parser.add_argument("--output", type=Path, help="Output CSV path (default: output/eval_results.csv)")
     parser.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT_PATH, help="Prompt file path")
     parser.add_argument("--model", default="vikhyatk/moondream2", help="Moondream model name")
@@ -67,7 +62,7 @@ def parse_args() -> argparse.Namespace:
         "--prepare-dataset",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Download/prepare the private HF test dataset before evaluation.",
+        help="Download the private HF test dataset; disable to require it in the HF cache.",
     )
     parser.add_argument("--dataset-repo-id", default=HF_DATASET_REPO_ID)
     parser.add_argument("--dataset-revision", default=HF_DATASET_REVISION)
@@ -207,28 +202,25 @@ def main() -> int:
     from datetime import datetime
     
     args = parse_args()
-    if args.prepare_dataset:
-        try:
-            status = prepare_hf_dataset(
-                repo_id=args.dataset_repo_id,
-                revision=args.dataset_revision,
-                data_dir=args.data_dir,
-                labels_path=args.labels,
-                max_workers=args.dataset_max_workers,
-                local_files_only=args.dataset_local_files_only,
-            )
-        except DatasetPreparationError as exc:
-            logger.error("%s", exc)
-            return 1
-        logger.info(
-            "Dataset ready: %d images at %s",
-            status["image_count"],
-            status["split_path"],
+    try:
+        dataset = get_hf_dataset_paths(
+            repo_id=args.dataset_repo_id,
+            revision=args.dataset_revision,
+            max_workers=args.dataset_max_workers,
+            local_files_only=args.dataset_local_files_only or not args.prepare_dataset,
         )
+    except DatasetPreparationError as exc:
+        logger.error("%s", exc)
+        return 1
+    logger.info(
+        "Dataset ready: %d images at %s",
+        dataset.image_count,
+        dataset.split_path,
+    )
 
     device = get_device(args.device)
     prompt = load_prompt(args.prompt)
-    labels = load_labels(args.labels)
+    labels = load_labels(dataset.labels_path)
     if args.limit:
         labels = labels[: args.limit]
     
@@ -259,7 +251,7 @@ def main() -> int:
             writer.writeheader()
         for i, row in enumerate(tqdm(to_evaluate, desc="Evaluating")):
             image_rel_path = row["path"]
-            image_path = args.data_dir / image_rel_path
+            image_path = dataset.snapshot_path / image_rel_path
             if not image_path.exists():
                 logger.warning("Image not found: %s", image_path)
                 errors += 1
@@ -335,7 +327,10 @@ def main() -> int:
                 model_name=model_name,
                 prompt_file=str(args.prompt),
                 description=args.description,
-                labels_file=str(args.labels.name),
+                labels_source=(
+                    f"hf://datasets/{dataset.repo_id}@{dataset.revision}/"
+                    "labels/test_labels.csv"
+                ),
             )
             logger.info("Registered model as '%s' in evaluation metadata", model_id)
         except Exception as e:
