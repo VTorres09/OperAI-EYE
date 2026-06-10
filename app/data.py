@@ -3,8 +3,8 @@ from typing import Optional
 
 import pandas as pd
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "exocentric_rgb"
-CSV_PATH = Path(__file__).resolve().parent.parent / "output" / "test_labels.csv"
+from hf_dataset import DatasetPreparationError, get_hf_dataset_paths
+
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 LABEL_COLUMNS = [
     "path",
@@ -29,13 +29,24 @@ def reset_cache() -> None:
 
 def get_df() -> pd.DataFrame:
     global _df
-    if not CSV_PATH.exists():
+    try:
+        labels_path = get_hf_dataset_paths(local_files_only=True).labels_path
+    except DatasetPreparationError:
         return pd.DataFrame(columns=LABEL_COLUMNS)
     if _df is None:
-        _df = pd.read_csv(CSV_PATH, dtype={"frame_id": str})
+        _df = pd.read_csv(labels_path, dtype={"frame_id": str})
         _df["confidence"] = pd.to_numeric(_df["confidence"], errors="coerce")
         _df = _df[_df["path"] != "path"].reset_index(drop=True)
     return _df
+
+
+def get_image_path(relative_path: Path) -> Optional[Path]:
+    try:
+        snapshot_path = get_hf_dataset_paths(local_files_only=True).snapshot_path
+    except DatasetPreparationError:
+        return None
+    image_path = snapshot_path / relative_path
+    return image_path if image_path.is_file() else None
 
 
 def _apply_filters(

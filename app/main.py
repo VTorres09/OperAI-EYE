@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from hf_dataset import DatasetPreparationError, dataset_status, prepare_hf_dataset
 
-from .data import DATA_DIR, get_filter_options, get_images, get_stats, reset_cache
+from .data import get_filter_options, get_image_path, get_images, get_stats, reset_cache
 from .eval_data import (
     compare_models,
     get_eval_filter_options,
@@ -94,8 +94,8 @@ def serve_image(image_path: str):
     if requested_path.is_absolute() or ".." in requested_path.parts:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    file_path = DATA_DIR / requested_path
-    if not file_path.is_file():
+    file_path = get_image_path(requested_path)
+    if file_path is None:
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(file_path)
 
@@ -210,9 +210,8 @@ def eval_register(
     model_name: str,
     prompt_file: str,
     description: str = "",
-    labels_file: str = "test_labels.csv",
 ):
-    return register_model(model_id, model_name, prompt_file, description, labels_file)
+    return register_model(model_id, model_name, prompt_file, description)
 
 
 if STATIC_DIR.is_dir():
