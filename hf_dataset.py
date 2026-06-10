@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -35,8 +36,61 @@ class HFDatasetPaths:
     image_count: int
 
 
-def count_pngs(path: Path) -> int:
-    return sum(1 for _ in path.rglob("*.png")) if path.exists() else 0
+def validate_labeled_images(
+    snapshot_path: Path,
+    labels_path: Path,
+    expected_images: int,
+) -> int:
+    """Validate the PNG paths referenced by the Hugging Face labels manifest."""
+
+    with labels_path.open(newline="", encoding="utf-8-sig") as labels_file:
+        reader = csv.DictReader(labels_file)
+        if not reader.fieldnames or "path" not in reader.fieldnames:
+            raise DatasetPreparationError(
+                f"Hugging Face labels file is missing the path column: {labels_path}"
+            )
+
+        image_paths: list[Path] = []
+        for row_number, row in enumerate(reader, start=2):
+            value = (row.get("path") or "").strip()
+            if not value or value == "path":
+                continue
+
+            image_path = Path(value)
+            if (
+                image_path.is_absolute()
+                or ".." in image_path.parts
+                or image_path.suffix.lower() != ".png"
+            ):
+                raise DatasetPreparationError(
+                    f"Hugging Face labels file has an invalid PNG path on row "
+                    f"{row_number}: {value}"
+                )
+            image_paths.append(image_path)
+
+    image_count = len(image_paths)
+    if image_count != expected_images:
+        raise DatasetPreparationError(
+            f"Hugging Face labels reference {image_count} PNGs, expected "
+            f"{expected_images}: {labels_path}"
+        )
+
+    unique_paths = set(image_paths)
+    if len(unique_paths) != image_count:
+        raise DatasetPreparationError(
+            f"Hugging Face labels contain {image_count - len(unique_paths)} duplicate "
+            f"PNG paths: {labels_path}"
+        )
+
+    missing_paths = [path for path in image_paths if not (snapshot_path / path).is_file()]
+    if missing_paths:
+        preview = ", ".join(str(path) for path in missing_paths[:3])
+        raise DatasetPreparationError(
+            f"Hugging Face snapshot is missing {len(missing_paths)} labeled PNGs "
+            f"(for example: {preview}): {snapshot_path}"
+        )
+
+    return image_count
 
 
 def _token() -> str | bool:
@@ -88,11 +142,11 @@ def get_hf_dataset_paths(
             f"Hugging Face snapshot is missing {', '.join(missing)}: {snapshot_path}"
         )
 
-    image_count = count_pngs(split_path)
-    if image_count != expected_images:
-        raise DatasetPreparationError(
-            f"Hugging Face snapshot has {image_count} PNGs, expected {expected_images}: {split_path}"
-        )
+    image_count = validate_labeled_images(
+        snapshot_path,
+        labels_path,
+        expected_images,
+    )
 
     return HFDatasetPaths(
         repo_id=repo_id,
