@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from hf_dataset import DatasetPreparationError, prepare_hf_dataset
+
 ROOT = Path(__file__).resolve().parent
 FRONTEND_DIR = ROOT / "frontend"
 STATIC_DIR = ROOT / "static"
@@ -25,7 +27,21 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--reload", action="store_true")
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument(
+        "--prepare-dataset",
+        action="store_true",
+        help="Download the private test images and precomputed labels before starting the UI.",
+    )
     args = parser.parse_args()
+
+    if args.prepare_dataset:
+        print("Preparing private test dataset and labels...")
+        try:
+            status = prepare_hf_dataset()
+        except DatasetPreparationError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Dataset ready: {status['image_count']} images")
 
     if not args.skip_build:
         build_frontend()
