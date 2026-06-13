@@ -4,7 +4,7 @@
       "model_name": "Moondream2 2025-01-09",
       "prompt_file": "prompts/or_phase_simple.txt",
       "description": "Moondream2 full test evaluation on OperAI-EYE private HF dataset. Run on Lightning NVIDIA L4 with four parallel shards.",
-      "labels_file": "test_labels.csv",
+      "labels_file": "hf://datasets/OperAI-Research/operai-eye-exocentric-rgb-test@b363f3b89449b9d3367e19719178e1199d0b324d/labels/test_labels.csv",
       "results_file": "eval_results_moondream2_2025_01_09_test.csv"
     }
   }
