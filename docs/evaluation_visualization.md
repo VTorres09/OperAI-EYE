@@ -1,5 +1,7 @@
 # Evaluation Visualization with Model Versioning
 
+Historical implementation notes for the evaluation dashboard.
+
 ## Overview
 
 Implemented a complete evaluation visualization system in the web app with support for comparing multiple model versions side-by-side.

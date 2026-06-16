@@ -16,6 +16,7 @@ import csv
 import json
 import logging
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -41,6 +42,19 @@ DEFAULT_PROMPT_PATH = Path("prompts/or_phase.txt")
 DATA_DIR = Path("data/exocentric_rgb")
 OUTPUT_DIR = Path("output")
 VALID_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
+FIELDNAMES = [
+    "path",
+    "split",
+    "surgery_type",
+    "procedure_id",
+    "take_id",
+    "camera",
+    "frame_id",
+    "phase",
+    "confidence",
+    "key_visual_cues",
+    "error",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,6 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=os.getenv("MODEL_NAME", "gemini-2.0-flash"), help="Model name")
     parser.add_argument("--concurrency", type=int, default=10, help="Number of concurrent requests")
     parser.add_argument("--limit", type=int, help="Limit number of images to process")
+    parser.add_argument("--seed", type=int, default=42, help="Random sampling seed")
     parser.add_argument("--dry-run", action="store_true", help="List images without submitting")
     parser.add_argument("--rephase", help="Force re-labeling of images currently labeled with this phase (e.g. TURNOVER)")
     return parser.parse_args()
@@ -85,15 +100,34 @@ def load_prompt(prompt_path: Path) -> str:
     return prompt_path.read_text().strip()
 
 
-def discover_images(split: str, limit: int | None = None) -> list[Path]:
+def deterministic_sample(paths: list[Path], limit: int | None, seed: int) -> list[Path]:
+    """Return a stable shuffled prefix so larger samples contain smaller ones."""
+
+    sampled = sorted(paths)
+    random.Random(seed).shuffle(sampled)
+    if limit is not None:
+        sampled = sampled[:limit]
+    return sampled
+
+
+def discover_images(
+    split: str,
+    limit: int | None = None,
+    seed: int = 42,
+) -> list[Path]:
     split_dir = DATA_DIR / split
     if not split_dir.exists():
         logger.error("Split directory not found: %s", split_dir)
         sys.exit(1)
-    images = sorted(split_dir.rglob("*.png"))
-    if limit:
-        images = images[:limit]
-    logger.info("Found %d images in %s split", len(images), split)
+    all_images = list(split_dir.rglob("*.png"))
+    images = deterministic_sample(all_images, limit, seed)
+    logger.info(
+        "Selected %d of %d images from %s split with seed %d",
+        len(images),
+        len(all_images),
+        split,
+        seed,
+    )
     return images
 
 
@@ -113,11 +147,12 @@ def load_existing_labels(output_csv: Path) -> set[str]:
     if not output_csv.exists():
         return set()
     labeled = set()
-    with open(output_csv) as f:
-        next(f, None)
-        for line in f:
-            if line.strip():
-                path = line.split(",")[0]
+    with output_csv.open(newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            path = (row.get("path") or "").strip()
+            phase = (row.get("phase") or "").strip()
+            error = (row.get("error") or "").strip()
+            if path and not error and phase in VALID_PHASES:
                 labeled.add(path)
     logger.info("Found %d already labeled images in %s", len(labeled), output_csv)
     return labeled
@@ -127,13 +162,12 @@ def load_phase_map(output_csv: Path) -> dict[str, str]:
     if not output_csv.exists():
         return {}
     phase_map = {}
-    with open(output_csv) as f:
-        next(f, None)
-        for line in f:
-            if line.strip():
-                parts = line.split(",")
-                if len(parts) >= 8:
-                    phase_map[parts[0]] = parts[7]
+    with output_csv.open(newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            path = (row.get("path") or "").strip()
+            phase = (row.get("phase") or "").strip()
+            if path:
+                phase_map[path] = phase
     return phase_map
 
 
@@ -238,11 +272,10 @@ async def label_image(
 
 
 def append_to_csv(results: list[dict[str, Any]], output_csv: Path) -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["path", "split", "surgery_type", "procedure_id", "take_id", "camera", "frame_id", "phase", "confidence", "key_visual_cues", "error"]
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
     file_exists = output_csv.exists()
-    with open(output_csv, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+    with output_csv.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
         if not file_exists:
             writer.writeheader()
         writer.writerows(results)
@@ -252,18 +285,17 @@ def update_csv_rows(results: list[dict[str, Any]], output_csv: Path) -> None:
     if not output_csv.exists():
         append_to_csv(results, output_csv)
         return
-    fieldnames = ["path", "split", "surgery_type", "procedure_id", "take_id", "camera", "frame_id", "phase", "confidence", "key_visual_cues", "error"]
     updated_paths = {r["path"] for r in results}
     rows = []
-    with open(output_csv) as f:
+    with output_csv.open(newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
             if row.get("path") in updated_paths:
                 continue
             rows.append(row)
     rows.extend(results)
-    with open(output_csv, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+    with output_csv.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -275,22 +307,17 @@ async def process_batch(
     model: str,
     concurrency: int,
     output_csv: Path,
-    update_mode: bool = False,
 ) -> tuple[int, int]:
     semaphore = asyncio.Semaphore(concurrency)
     tasks = [label_image(client, img, prompt, model, semaphore) for img in images]
-    results = []
     success = 0
     errors = 0
     batch_size = 100
     for i in tqdm(range(0, len(tasks), batch_size), desc="Processing batches"):
         batch_tasks = tasks[i : i + batch_size]
         batch_results = await asyncio.gather(*batch_tasks)
-        results.extend(batch_results)
-        if update_mode:
-            update_csv_rows(batch_results, output_csv)
-        else:
-            append_to_csv(batch_results, output_csv)
+        # Always upsert so retried failures replace their previous row.
+        update_csv_rows(batch_results, output_csv)
         for r in batch_results:
             if r["error"]:
                 errors += 1
@@ -305,7 +332,11 @@ async def main_async() -> int:
     prompt = load_prompt(args.prompt)
     if args.rephase:
         split_dir = DATA_DIR / args.split
-        all_images = sorted(split_dir.rglob("*.png"))
+        all_images = deterministic_sample(
+            list(split_dir.rglob("*.png")),
+            None,
+            args.seed,
+        )
         output_csv = OUTPUT_DIR / f"{args.split}_labels.csv"
         phase_map = load_phase_map(output_csv)
         to_process = [
@@ -318,7 +349,7 @@ async def main_async() -> int:
         existing = load_existing_labels(output_csv)
         logger.info("Re-labeling %d images with phase %s", len(to_process), args.rephase)
     else:
-        images = discover_images(args.split, args.limit)
+        images = discover_images(args.split, args.limit, args.seed)
         output_csv = OUTPUT_DIR / f"{args.split}_labels.csv"
         existing = load_existing_labels(output_csv)
         to_process = [img for img in images if str(img.relative_to(DATA_DIR)) not in existing]
@@ -330,8 +361,14 @@ async def main_async() -> int:
         logger.info("Dry run: would process %d images", len(to_process))
         return 0
     start_time = time.time()
-    update_mode = bool(args.rephase)
-    success, errors = await process_batch(client, to_process, prompt, args.model, args.concurrency, output_csv, update_mode=update_mode)
+    success, errors = await process_batch(
+        client,
+        to_process,
+        prompt,
+        args.model,
+        args.concurrency,
+        output_csv,
+    )
     elapsed = time.time() - start_time
     logger.info("=" * 50)
     logger.info("LABELING COMPLETE")

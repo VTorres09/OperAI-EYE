@@ -199,8 +199,6 @@ def load_existing_eval_results(output_path: Path) -> set[str]:
 
 
 def main() -> int:
-    from datetime import datetime
-    
     args = parse_args()
     try:
         dataset = get_hf_dataset_paths(

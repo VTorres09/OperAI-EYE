@@ -7,7 +7,6 @@ Surgical operating room phase classification pipeline. Downloads exocentric RGB 
 | Phase | Description |
 |---|---|
 | `IDLE` | Empty OR, no patient, no activity |
-| `TURNOVER` | Staff cleaning/restocking, no patient |
 | `PATIENT_IN_ROOM` | Patient present, no active surgery |
 | `SURGERY_ACTIVE` | Active surgical procedure underway |
 | `UNKNOWN` | View obstructed or unclassifiable |
@@ -18,6 +17,12 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
+```
+
+Run the Python tests with:
+
+```bash
+uv run --with pytest pytest
 ```
 
 ### View the existing labels and evaluation
@@ -56,16 +61,60 @@ Downloads HDF5 files from HuggingFace and extracts exocentric RGB images into `d
 ### 2. Label data
 
 ```bash
-export OPENAI_API_KEY=sk-...   # or GEMINI_API_KEY
-python label_data.py --split validation [--concurrency 10] [--limit N]
+export OPENAI_BASE_URL=https://api.moonshot.ai/v1
+export MOONSHOT_API_KEY=...
+export MODEL_NAME=kimi-k2.6
+uv run python label_data.py --split train --limit 10000 --seed 42
+uv run python label_data.py --split validation --limit 2000 --seed 42
 ```
 
 Sends images to an OpenAI-compatible vision API and writes labels to `output/{split}_labels.csv`. Resumes from existing output (skips already-labeled images).
 
 Environment variables:
-- `OPENAI_API_KEY` or `GEMINI_API_KEY` — required
+- `OPENAI_API_KEY`, `MOONSHOT_API_KEY`, or `GEMINI_API_KEY` — required
 - `OPENAI_BASE_URL` — custom API endpoint
 - `MODEL_NAME` — override model (default: `gemini-2.0-flash`)
+
+Sampling is deterministic. Increasing `--limit` with the same `--seed` keeps
+the existing sample and appends new images. Successful rows are resumed while
+failed rows are retried and replaced.
+
+### Prepare and publish the SFT dataset
+
+Run the analysis after each labeling pass:
+
+```bash
+uv run python prepare_sft_dataset.py analyze
+```
+
+The current target is 10,000 deterministic training images and 2,000 validation
+images. The analysis may recommend validation increments of 500 up to 3,000
+when minority-class or source metadata coverage is still insufficient. Label
+the recommended limits, rerun analysis, then:
+
+```bash
+uv run python prepare_sft_dataset.py stage
+uv run python prepare_sft_dataset.py publish
+```
+
+This creates and verifies the private dataset
+`OperAI-Research/operai-eye-exocentric-rgb-sft`. Set `HF_TOKEN` in `.env` to a
+token with write access to the organization.
+
+### Fine-tune Moondream
+
+Set `MOONDREAM_API_KEY` in `.env`, then launch the resumable cloud SFT run:
+
+```bash
+uv run python -m finetuning.moondream.finetune_moondream
+```
+
+The run uses rank 8, batch size 8, learning rate `2e-4`, up to three epochs,
+and deterministic validation. Progress is saved after every training batch in
+`output/moondream_sft_state.json`; rerunning the command resumes the same
+fine-tune. Use `--dry-run` to validate the pinned Hub dataset without creating
+a cloud job. The current Moondream run report is in
+`finetuning/moondream/REPORT.md`.
 
 ### 3. Evaluate model
 
@@ -100,11 +149,16 @@ The Vite dev server proxies `/api` requests to `localhost:8000`.
 ```
 ├── download_exocentric_rgb.py   # Step 1: download & extract dataset
 ├── label_data.py                # Step 2: LLM-based image labeling
+├── prepare_sft_dataset.py       # Analyze, stage, publish, and verify SFT data
+├── finetuning/                  # Model-specific fine-tuning entry points
+│   └── moondream/               # Resumable Moondream Cloud SFT and report
 ├── evaluate_moondream.py        # Step 3: local model evaluation
 ├── run.py                       # Visualization server entry point
 ├── app/                         # FastAPI backend
+├── docs/                        # Historical implementation notes
 ├── frontend/                    # React + Vite frontend
 ├── prompts/                     # LLM prompt templates
+├── tests/                       # Python unit tests
 ├── data/                        # Downloaded images (gitignored)
 ├── output/                      # Labels & eval results (gitignored)
 └── static/                      # Frontend build output (gitignored)
