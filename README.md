@@ -101,6 +101,26 @@ This creates and verifies the private dataset
 `OperAI-Research/operai-eye-exocentric-rgb-sft`. Set `HF_TOKEN` in `.env` to a
 token with write access to the organization.
 
+Rows labeled `UNKNOWN` remain in the raw label CSVs for auditability, but are
+excluded from staged train/validation archives and model evaluation.
+
+### Audit label consistency
+
+Use the Audit tab in the visualization app to review temporal label candidates,
+save correction decisions, rebuild corrected train/validation archives, and
+publish the corrected SFT dataset back to Hugging Face.
+
+For a non-UI report of the same heuristics:
+
+```bash
+uv run python audit_labels.py --json
+```
+
+The script writes review candidates to `output/label_audit_suspects.csv` and a
+summary to `output/label_audit_summary.json`. The UI reads the pinned Hugging
+Face SFT dataset, stores reviewer decisions in `output/sft_label_corrections.csv`,
+and publishes corrected archives only when you press Publish.
+
 ### Fine-tune Moondream
 
 Set `MOONDREAM_API_KEY` in `.env`, then launch the resumable cloud SFT run:
@@ -116,6 +136,35 @@ fine-tune. Use `--dry-run` to validate the pinned Hub dataset without creating
 a cloud job. The current Moondream run report is in
 `finetuning/moondream/REPORT.md`.
 
+### Fine-tune DINOv3 with LightlyTrain
+
+Prepare multilabel CSVs from the pinned Hugging Face SFT dataset:
+
+```bash
+uv run python -m finetuning.dinov3.train_lightly prepare
+```
+
+The mapping is hierarchical:
+
+| Phase | Multilabel targets |
+|---|---|
+| `IDLE` | `idle` |
+| `PATIENT_IN_ROOM` | `people_in_room`, `surgery_inactive` |
+| `SURGERY_ACTIVE` | `people_in_room`, `surgery_active` |
+
+When you are ready to run the fine-tune, install LightlyTrain for that command
+and launch the DINOv3 ViT-B/16 multilabel classifier:
+
+```bash
+uv run --with lightly-train python -m finetuning.dinov3.train_lightly train \
+  --model dinov3/vitb16 \
+  --steps auto \
+  --batch-size auto
+```
+
+Outputs are prepared under `output/lightly_dinov3/` and Lightly checkpoints/logs
+go under `output/lightly_dinov3/runs/dinov3_vitb16_multilabel/`.
+
 ### 3. Evaluate model
 
 ```bash
@@ -124,7 +173,7 @@ uv run python evaluate_moondream.py [--limit N]
 
 Runs [Moondream2](https://huggingface.co/vikhyatk/moondream2) locally and compares predictions against API labels. Outputs `output/eval_results.csv` and `output/eval_metrics.json`.
 
-By default, evaluation prepares the private HF test dataset first. Evaluation CSV/JSON files under `output/eval_*` are intentionally committable; the dataset and labels remain ignored.
+By default, evaluation prepares the private HF test dataset first. Evaluation CSV/JSON files under `output/eval_*` are intentionally committable; the dataset and labels remain ignored. Rows with `UNKNOWN` ground truth are ignored for metric computation.
 
 ## Visualization
 
@@ -135,6 +184,13 @@ uv run python run.py [--no-prepare-dataset] [--port 8000] [--reload]
 Builds the React frontend and starts a FastAPI server serving both the API (`/api/*`) and the SPA on a single port.
 
 If the private test dataset is not cached, the Explorer view shows a download button. The download uses `HF_TOKEN` from `.env` or the environment, and the backend reads the resulting Hugging Face snapshot directly.
+
+The Audit view uses the private SFT dataset
+`OperAI-Research/operai-eye-exocentric-rgb-sft`. Its prepare button downloads
+and extracts `train.zip` and `validation.zip` from Hugging Face, then displays
+review candidates from the train/validation labels. Rebuild Archives creates a
+corrected local stage under `output/sft_dataset_corrected/`; Publish to HF
+uploads that stage and updates `output/sft_dataset_revision.json`.
 
 For frontend-only development:
 
@@ -149,8 +205,10 @@ The Vite dev server proxies `/api` requests to `localhost:8000`.
 ```
 ├── download_exocentric_rgb.py   # Step 1: download & extract dataset
 ├── label_data.py                # Step 2: LLM-based image labeling
+├── audit_labels.py              # Temporal/confidence label review candidates
 ├── prepare_sft_dataset.py       # Analyze, stage, publish, and verify SFT data
 ├── finetuning/                  # Model-specific fine-tuning entry points
+│   ├── dinov3/                  # LightlyTrain DINOv3 multilabel classifier
 │   └── moondream/               # Resumable Moondream Cloud SFT and report
 ├── evaluate_moondream.py        # Step 3: local model evaluation
 ├── run.py                       # Visualization server entry point

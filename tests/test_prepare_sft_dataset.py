@@ -155,6 +155,95 @@ class StageTest(unittest.TestCase):
             self.assertIn("question", metadata)
             self.assertIn('"empty, quiet"', metadata)
 
+    def test_stage_omits_unknown_rows_from_archives(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            data_dir = root / "data"
+            output_dir = root / "output"
+            stage_dir = root / "stage"
+            prompt = root / "prompt.txt"
+            prompt.write_text("classify", encoding="utf-8")
+            analysis_path = root / "analysis.json"
+            analysis = {
+                "seed": 42,
+                "ready_for_staging": True,
+                "splits": {
+                    "train": {"selected_count": 2, "training_count": 1},
+                    "validation": {"selected_count": 2, "training_count": 1},
+                },
+            }
+            prepare.write_json(analysis_path, analysis)
+
+            labels_by_split = {}
+            shuffled_by_split = {}
+            for split in ("train", "validation"):
+                paths = []
+                labels_by_split[split] = {}
+                for index, phase in enumerate(("IDLE", "UNKNOWN"), start=1):
+                    image = (
+                        data_dir
+                        / split
+                        / "MISS"
+                        / "1"
+                        / "take_1"
+                        / "external_1"
+                        / f"frame_{index:06d}.png"
+                    )
+                    image.parent.mkdir(parents=True, exist_ok=True)
+                    image.write_bytes(b"png")
+                    paths.append(image)
+                    labels_by_split[split][str(image.relative_to(data_dir))] = {
+                        "path": str(image.relative_to(data_dir)),
+                        "split": split,
+                        "surgery_type": "MISS",
+                        "procedure_id": "1",
+                        "take_id": "1",
+                        "camera": "external_1",
+                        "frame_id": f"{index:06d}",
+                        "phase": phase,
+                        "confidence": "0.9",
+                        "key_visual_cues": "",
+                        "error": "",
+                    }
+                shuffled_by_split[split] = paths
+
+            def fake_sampled(split: str, seed: int):
+                paths = shuffled_by_split[split]
+                return paths, paths
+
+            def fake_labels(path: Path):
+                return labels_by_split[path.stem.replace("_labels", "")]
+
+            with patch.object(prepare, "DATA_DIR", data_dir), patch.object(
+                prepare, "OUTPUT_DIR", output_dir
+            ), patch.object(
+                prepare, "sampled_paths", side_effect=fake_sampled
+            ), patch.object(
+                prepare, "read_successful_labels", side_effect=fake_labels
+            ):
+                result = prepare.stage_dataset(
+                    analysis_path,
+                    stage_dir,
+                    prompt,
+                    "kimi-k2.6",
+                    42,
+                    False,
+                )
+
+            self.assertEqual(len(result["sampled_paths"]["train"]), 2)
+            self.assertEqual(len(result["staged_paths"]["train"]), 1)
+            self.assertEqual(len(result["ignored_unknown_paths"]["train"]), 1)
+            with zipfile.ZipFile(stage_dir / "train.zip") as archive:
+                self.assertIn("metadata.csv", archive.namelist())
+                self.assertEqual(
+                    [
+                        name
+                        for name in archive.namelist()
+                        if name.endswith(".png")
+                    ],
+                    ["MISS/1/take_1/external_1/frame_000001.png"],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

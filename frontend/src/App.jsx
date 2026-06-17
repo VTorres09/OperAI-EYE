@@ -3,6 +3,7 @@ import FilterPanel from './components/FilterPanel'
 import ImageCarousel from './components/ImageCarousel'
 import ImageModal from './components/ImageModal'
 import EvalDashboard from './components/EvalDashboard'
+import AuditDashboard from './components/AuditDashboard'
 import { useImages } from './hooks/useImages'
 import './App.css'
 
@@ -42,7 +43,7 @@ function App() {
     return () => window.clearInterval(id)
   }, [datasetStatus, refreshDatasetStatus])
 
-  const datasetReady = datasetStatus?.ready !== false
+  const datasetReady = datasetStatus?.ready !== false || Boolean(filterOptions?.splits?.length)
   const downloadState = datasetStatus?.download?.state
   const downloadRunning = downloadState === 'running'
 
@@ -62,6 +63,12 @@ function App() {
             onClick={() => setActiveView('evaluation')}
           >
             Evaluation
+          </button>
+          <button
+            className={`nav-button ${activeView === 'audit' ? 'active' : ''}`}
+            onClick={() => setActiveView('audit')}
+          >
+            Audit
           </button>
         </nav>
         {activeView === 'explorer' && (
@@ -94,6 +101,8 @@ function App() {
             )}
           </main>
         </div>
+      ) : activeView === 'audit' ? (
+        <AuditDashboard />
       ) : (
         <EvalDashboard />
       )}

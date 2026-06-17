@@ -28,9 +28,10 @@ DEFAULT_REVISION_PATH = OUTPUT_DIR / "sft_dataset_revision.json"
 DEFAULT_SEED = 42
 QUESTION = (
     "Classify the operating room phase. Respond with exactly one of: "
-    "IDLE, PATIENT_IN_ROOM, SURGERY_ACTIVE, UNKNOWN."
+    "IDLE, PATIENT_IN_ROOM, SURGERY_ACTIVE."
 )
 CORE_PHASES = ("IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE")
+TRAINING_PHASES = set(CORE_PHASES)
 SPLIT_RULES = {
     "train": {
         "initial": 10_000,
@@ -175,7 +176,11 @@ def analyze_split(
         for path in selected_paths
         if str(path.relative_to(DATA_DIR)) in labels
     ]
+    training_rows = [
+        row for row in selected_rows if row.get("phase") in TRAINING_PHASES
+    ]
     class_counts = Counter(row["phase"] for row in selected_rows)
+    training_class_counts = Counter(row["phase"] for row in training_rows)
 
     metadata_gaps = {}
     for field in METADATA_FIELDS:
@@ -233,6 +238,11 @@ def analyze_split(
         "needs_labeling": completed_prefix < recommended_count,
         "class_counts": {
             phase: class_counts.get(phase, 0) for phase in sorted(VALID_PHASES)
+        },
+        "training_count": len(training_rows),
+        "ignored_unknown_count": class_counts.get("UNKNOWN", 0),
+        "training_class_counts": {
+            phase: training_class_counts.get(phase, 0) for phase in CORE_PHASES
         },
         "minimum_per_core_class": rule["minimum_per_core_class"],
         "class_minimums_met": class_minimums_met,
@@ -293,8 +303,12 @@ def run_analysis(seed: int, output: Path, as_json: bool) -> int:
 
 
 def dataset_card(analysis: dict[str, Any], model: str, prompt_hash: str) -> str:
-    train_count = analysis["splits"]["train"]["selected_count"]
-    validation_count = analysis["splits"]["validation"]["selected_count"]
+    train_count = analysis["splits"]["train"].get(
+        "training_count", analysis["splits"]["train"]["selected_count"]
+    )
+    validation_count = analysis["splits"]["validation"].get(
+        "training_count", analysis["splits"]["validation"]["selected_count"]
+    )
     return f"""---
 license: apache-2.0
 task_categories:
@@ -326,10 +340,12 @@ Kimi-labeled exocentric operating-room frames derived from
 - Labeling model: `{model}`
 - Sampling seed: `{analysis['seed']}`
 - Prompt SHA-256: `{prompt_hash}`
-- Classes: `IDLE`, `PATIENT_IN_ROOM`, `SURGERY_ACTIVE`, `UNKNOWN`
+- Classes: `IDLE`, `PATIENT_IN_ROOM`, `SURGERY_ACTIVE`
 
 Images are stored as an ImageFolder dataset with split-local `metadata.csv` files.
 The Kimi confidence values are retained for analysis and are not used as filters.
+Rows labeled `UNKNOWN` are retained in the source label CSVs for auditing, but
+are omitted from the training and validation archives.
 
 ## License and attribution
 
@@ -363,6 +379,8 @@ def stage_dataset(
     stage_dir.mkdir(parents=True)
 
     sampled_manifest: dict[str, list[str]] = {}
+    staged_manifest: dict[str, list[str]] = {}
+    ignored_manifest: dict[str, list[str]] = {}
     for split, result in analysis["splits"].items():
         _, shuffled = sampled_paths(split, seed)
         selected = shuffled[: result["selected_count"]]
@@ -372,6 +390,8 @@ def stage_dataset(
         metadata_rows = []
         label_rows = []
         sampled_manifest[split] = []
+        staged_manifest[split] = []
+        ignored_manifest[split] = []
 
         for source in selected:
             source_rel = source.relative_to(DATA_DIR)
@@ -379,11 +399,16 @@ def stage_dataset(
             if source_key not in labels:
                 raise RuntimeError(f"Missing successful label for {source_key}")
             row = labels[source_key]
+            sampled_manifest[split].append(source_key)
+            label_rows.append(row)
+            if row["phase"] not in TRAINING_PHASES:
+                ignored_manifest[split].append(source_key)
+                continue
             image_rel = Path(*source_rel.parts[1:])
             destination = split_dir / image_rel
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
-            sampled_manifest[split].append(source_key)
+            staged_manifest[split].append(source_key)
             metadata_rows.append({
                 "file_name": str(image_rel),
                 "label": row["phase"],
@@ -401,7 +426,9 @@ def stage_dataset(
                 "sampling_seed": seed,
                 "prompt_sha256": prompt_hash,
             })
-            label_rows.append(row)
+
+        if not metadata_rows:
+            raise RuntimeError(f"No trainable rows were staged for {split}")
 
         with (split_dir / "metadata.csv").open(
             "w", newline="", encoding="utf-8"
@@ -442,6 +469,8 @@ def stage_dataset(
         "sampling_seed": seed,
         "analysis": analysis,
         "sampled_paths": sampled_manifest,
+        "staged_paths": staged_manifest,
+        "ignored_unknown_paths": ignored_manifest,
     }
     write_json(stage_dir / "analysis_manifest.json", provenance)
     (stage_dir / "README.md").write_text(
@@ -500,7 +529,10 @@ def publish_dataset(
             token=token,
             data_files={split: f"{split}.zip"},
         )
-        expected_count = expected[split]["selected_count"]
+        expected_count = expected[split].get(
+            "training_count",
+            expected[split]["selected_count"],
+        )
         if len(dataset) != expected_count:
             raise RuntimeError(
                 f"{split} has {len(dataset)} rows, expected {expected_count}"

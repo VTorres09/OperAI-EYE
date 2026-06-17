@@ -4,6 +4,11 @@ from typing import Optional
 import pandas as pd
 
 from hf_dataset import DatasetPreparationError, get_hf_dataset_paths
+from hf_sft_dataset import (
+    SFTDatasetPreparationError,
+    get_hf_sft_dataset_paths,
+    image_path_for_source,
+)
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 LABEL_COLUMNS = [
@@ -18,6 +23,7 @@ LABEL_COLUMNS = [
     "confidence",
     "key_visual_cues",
 ]
+SPLIT_ORDER = {"train": 0, "validation": 1, "test": 2}
 
 _df: Optional[pd.DataFrame] = None
 
@@ -29,18 +35,62 @@ def reset_cache() -> None:
 
 def get_df() -> pd.DataFrame:
     global _df
+    if _df is not None:
+        return _df
+
+    frames = []
     try:
-        labels_path = get_hf_dataset_paths(local_files_only=True).labels_path
+        test_paths = get_hf_dataset_paths(local_files_only=True)
     except DatasetPreparationError:
-        return pd.DataFrame(columns=LABEL_COLUMNS)
-    if _df is None:
-        _df = pd.read_csv(labels_path, dtype={"frame_id": str})
+        pass
+    else:
+        test_df = pd.read_csv(test_paths.labels_path, dtype={"frame_id": str})
+        test_df = test_df[test_df["path"] != "path"].copy()
+        test_df["split"] = test_df["split"].fillna("test")
+        frames.append(test_df)
+
+    try:
+        sft_paths = get_hf_sft_dataset_paths(local_files_only=True)
+    except SFTDatasetPreparationError:
+        pass
+    else:
+        sft_frames = []
+        for split, labels_path in sft_paths.labels_paths.items():
+            split_df = pd.read_csv(labels_path, dtype={"frame_id": str})
+            split_df = split_df[split_df["path"] != "path"].copy()
+            split_df["split"] = split
+            split_df = split_df[
+                split_df["path"].map(
+                    lambda path: image_path_for_source(sft_paths, str(path))
+                    is not None
+                )
+            ]
+            sft_frames.append(split_df)
+        if sft_frames:
+            frames.append(pd.concat(sft_frames, ignore_index=True))
+
+    if frames:
+        _df = pd.concat(frames, ignore_index=True)
+        for column in LABEL_COLUMNS:
+            if column not in _df.columns:
+                _df[column] = None
+        _df = _df[LABEL_COLUMNS]
         _df["confidence"] = pd.to_numeric(_df["confidence"], errors="coerce")
-        _df = _df[_df["path"] != "path"].reset_index(drop=True)
+        _df = _df.reset_index(drop=True)
+    else:
+        _df = pd.DataFrame(columns=LABEL_COLUMNS)
     return _df
 
 
 def get_image_path(relative_path: Path) -> Optional[Path]:
+    parts = relative_path.parts
+    if parts and parts[0] in {"train", "validation"}:
+        try:
+            sft_paths = get_hf_sft_dataset_paths(local_files_only=True)
+        except SFTDatasetPreparationError:
+            return None
+        return image_path_for_source(sft_paths, str(relative_path))
+
     try:
         snapshot_path = get_hf_dataset_paths(local_files_only=True).snapshot_path
     except DatasetPreparationError:
@@ -49,8 +99,19 @@ def get_image_path(relative_path: Path) -> Optional[Path]:
     return image_path if image_path.is_file() else None
 
 
+def _ordered_values(values: list) -> list:
+    return sorted(
+        values,
+        key=lambda value: (
+            SPLIT_ORDER.get(str(value), 100),
+            str(value),
+        ),
+    )
+
+
 def _apply_filters(
     df: pd.DataFrame,
+    split: Optional[str] = None,
     phase: Optional[str] = None,
     surgery_type: Optional[str] = None,
     camera: Optional[str] = None,
@@ -58,6 +119,8 @@ def _apply_filters(
     take_id: Optional[int] = None,
 ) -> pd.DataFrame:
     mask = pd.Series(True, index=df.index)
+    if split:
+        mask &= df["split"] == split
     if phase:
         mask &= df["phase"] == phase
     if surgery_type:
@@ -74,6 +137,7 @@ def _apply_filters(
 def get_filter_options() -> dict:
     df = get_df()
     return {
+        "splits": _ordered_values(df["split"].dropna().unique().tolist()),
         "phases": sorted(df["phase"].dropna().unique().tolist()),
         "surgery_types": sorted(df["surgery_type"].dropna().unique().tolist()),
         "cameras": sorted(df["camera"].dropna().unique().tolist()),
@@ -95,6 +159,7 @@ def get_model_predictions(model_id: str) -> Optional[pd.DataFrame]:
 
 
 def get_stats(
+    split: Optional[str] = None,
     phase: Optional[str] = None,
     surgery_type: Optional[str] = None,
     camera: Optional[str] = None,
@@ -103,7 +168,7 @@ def get_stats(
 ) -> dict:
     df = get_df()
     filtered = _apply_filters(
-        df, phase, surgery_type, camera, procedure_id, take_id
+        df, split, phase, surgery_type, camera, procedure_id, take_id
     )
     total = len(filtered)
 
@@ -116,6 +181,7 @@ def get_stats(
 
     return {
         "total": total,
+        "by_split": counts("split"),
         "by_phase": counts("phase"),
         "by_camera": counts("camera"),
         "by_surgery_type": counts("surgery_type"),
@@ -125,6 +191,7 @@ def get_stats(
 def get_images(
     page: int = 1,
     page_size: int = 20,
+    split: Optional[str] = None,
     phase: Optional[str] = None,
     surgery_type: Optional[str] = None,
     camera: Optional[str] = None,
@@ -134,7 +201,7 @@ def get_images(
 ) -> dict:
     df = get_df()
     filtered = _apply_filters(
-        df, phase, surgery_type, camera, procedure_id, take_id
+        df, split, phase, surgery_type, camera, procedure_id, take_id
     )
     total = len(filtered)
     start = (page - 1) * page_size

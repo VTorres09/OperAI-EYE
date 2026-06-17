@@ -119,7 +119,7 @@ def compute_metrics(
 
 def sft_group(example: dict[str, Any]) -> dict[str, Any]:
     phase = str(example["phase"]).strip().upper()
-    if phase not in VALID_PHASES:
+    if phase not in CORE_PHASES:
         raise ValueError(f"Invalid phase: {phase}")
     return {
         "mode": "sft",
@@ -172,6 +172,11 @@ def train_epoch(
 
 
 def evaluate(ft: Any, validation_data: Any, concurrency: int) -> dict[str, Any]:
+    core_examples = (
+        example
+        for example in validation_data
+        if str(example["phase"]).strip().upper() in CORE_PHASES
+    )
     requests = (
         (
             str(example["phase"]).strip().upper(),
@@ -183,7 +188,7 @@ def evaluate(ft: Any, validation_data: Any, concurrency: int) -> dict[str, Any]:
                 "settings": {"temperature": 0.0, "max_tokens": 16},
             },
         )
-        for example in validation_data
+        for example in core_examples
     )
     ground_truth = []
     predictions = []
@@ -294,6 +299,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     train_data = dataset["train"]
     validation_data = dataset["validation"]
+    train_data = train_data.filter(lambda row: row["phase"] in CORE_PHASES)
+    validation_data = validation_data.filter(lambda row: row["phase"] in CORE_PHASES)
     if args.dry_run:
         example_group = sft_group(train_data[0])
         return {

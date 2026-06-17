@@ -44,7 +44,7 @@ class SftShapeTest(unittest.TestCase):
             example("IDLE"),
             example("PATIENT_IN_ROOM"),
             example("SURGERY_ACTIVE"),
-            example("UNKNOWN"),
+            example("PATIENT_IN_ROOM"),
             example("IDLE"),
         ]
         progress = []
@@ -74,7 +74,7 @@ class SftShapeTest(unittest.TestCase):
         self.assertEqual(first, repeated)
         self.assertNotEqual(first, second)
 
-    def test_evaluation_uses_complete_labels(self) -> None:
+    def test_evaluation_ignores_unknown_labels(self) -> None:
         model = FakeFinetune()
         data = [
             example(phase)
@@ -84,6 +84,7 @@ class SftShapeTest(unittest.TestCase):
         metrics = finetune.evaluate(model, data, concurrency=2)
 
         self.assertEqual(metrics["accuracy"], 1.0)
+        self.assertEqual(metrics["total"], 3)
         self.assertEqual(metrics["per_class"]["PATIENT_IN_ROOM"]["recall"], 1.0)
         self.assertEqual(model.groups[0][0]["settings"]["max_tokens"], 16)
 

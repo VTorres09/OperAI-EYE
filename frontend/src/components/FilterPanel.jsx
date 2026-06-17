@@ -41,6 +41,16 @@ export default function FilterPanel({ filterOptions, filters, stats, onChange })
       </label>
 
       <label>
+        Split
+        <select value={filters.split || ''} onChange={(e) => update('split', e.target.value)}>
+          <option value="">All</option>
+          {filterOptions.splits.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+      </label>
+
+      <label>
         Phase
         <select value={filters.phase || ''} onChange={(e) => update('phase', e.target.value)}>
           <option value="">All</option>
