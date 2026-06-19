@@ -1,0 +1,35 @@
+{
+  "accuracy": 0.7953,
+  "correct": 18206,
+  "per_class": {
+    "IDLE": {
+      "correct": 1494,
+      "f1": 0.93,
+      "precision": 0.8752,
+      "recall": 0.992,
+      "total": 1506
+    },
+    "PATIENT_IN_ROOM": {
+      "correct": 12596,
+      "f1": 0.8444,
+      "precision": 0.8824,
+      "recall": 0.8096,
+      "total": 15558
+    },
+    "SURGERY_ACTIVE": {
+      "correct": 4116,
+      "f1": 0.6606,
+      "precision": 0.6204,
+      "recall": 0.7062,
+      "total": 5828
+    },
+    "UNKNOWN": {
+      "correct": 0,
+      "f1": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "total": 0
+    }
+  },
+  "total": 22892
+}

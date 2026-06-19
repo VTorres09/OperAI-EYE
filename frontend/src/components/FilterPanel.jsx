@@ -29,7 +29,14 @@ export default function FilterPanel({ filterOptions, filters, stats, onChange })
         Model
         <select
           value={filters.model_id || ''}
-          onChange={(e) => update('model_id', e.target.value)}
+          onChange={(e) => {
+            const modelId = e.target.value
+            onChange({
+              ...filters,
+              model_id: modelId,
+              prediction: modelId ? filters.prediction : '',
+            })
+          }}
         >
           <option value="">None</option>
           {models.map((m) => (
@@ -39,6 +46,21 @@ export default function FilterPanel({ filterOptions, filters, stats, onChange })
           ))}
         </select>
       </label>
+
+      {filters.model_id && (
+        <label>
+          Prediction
+          <select
+            value={filters.prediction || ''}
+            onChange={(e) => update('prediction', e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="incorrect">Incorrect</option>
+            <option value="correct">Correct</option>
+            <option value="missing">Missing</option>
+          </select>
+        </label>
+      )}
 
       <label>
         Split

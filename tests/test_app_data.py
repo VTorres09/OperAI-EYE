@@ -8,8 +8,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
+
 from hf_dataset import HFDatasetPaths
-from hf_sft_dataset import HFSFTDatasetPaths
+from hf_sft_dataset import HFSFTDatasetPaths, SFTDatasetPreparationError
 
 from app import data
 
@@ -123,6 +125,51 @@ class ExplorerDataTest(unittest.TestCase):
             )
             self.assertEqual(validation_stats["total"], 1)
             self.assertEqual(train_path, split_dirs["train"] / "MISS/1/take_1/external_1/frame_000002.png")
+
+    def test_prediction_filter_limits_explorer_to_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            test_snapshot = root / "test_snapshot"
+            test_labels = test_snapshot / "labels" / "test_labels.csv"
+            rows = [
+                label_row("test", "000001", "IDLE"),
+                label_row("test", "000002", "SURGERY_ACTIVE"),
+            ]
+            for row in rows:
+                image = test_snapshot / row["path"]
+                image.parent.mkdir(parents=True, exist_ok=True)
+                image.write_bytes(b"png")
+            write_labels(test_labels, rows)
+
+            test_paths = HFDatasetPaths(
+                repo_id="org/test",
+                revision="test-sha",
+                snapshot_path=test_snapshot,
+                split_path=test_snapshot / "test",
+                labels_path=test_labels,
+                metadata_path=test_snapshot / "test" / "metadata.csv",
+                image_count=2,
+            )
+            predictions = pd.DataFrame(
+                [
+                    {"path": rows[0]["path"], "predicted": "IDLE"},
+                    {"path": rows[1]["path"], "predicted": "PATIENT_IN_ROOM"},
+                ]
+            )
+
+            with patch.object(data, "get_hf_dataset_paths", return_value=test_paths), patch.object(
+                data,
+                "get_hf_sft_dataset_paths",
+                side_effect=SFTDatasetPreparationError("no sft cache"),
+            ), patch.object(data, "get_model_predictions", return_value=predictions):
+                data.reset_cache()
+                incorrect = data.get_images(model_id="model", prediction="incorrect")
+                correct_stats = data.get_stats(model_id="model", prediction="correct")
+
+            self.assertEqual(incorrect["total"], 1)
+            self.assertEqual(incorrect["items"][0]["frame_id"], "000002")
+            self.assertFalse(incorrect["items"][0]["model_correct"])
+            self.assertEqual(correct_stats["total"], 1)
 
 
 if __name__ == "__main__":

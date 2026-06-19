@@ -215,6 +215,7 @@ def list_images(
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
     model_id: Optional[str] = None,
+    prediction: Optional[str] = None,
 ):
     return get_images(
         page=page,
@@ -226,6 +227,7 @@ def list_images(
         procedure_id=procedure_id,
         take_id=take_id,
         model_id=model_id,
+        prediction=prediction,
     )
 
 
@@ -242,6 +244,8 @@ def stats(
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
+    model_id: Optional[str] = None,
+    prediction: Optional[str] = None,
 ):
     return get_stats(
         split=split,
@@ -250,6 +254,8 @@ def stats(
         camera=camera,
         procedure_id=procedure_id,
         take_id=take_id,
+        model_id=model_id,
+        prediction=prediction,
     )
 
 

@@ -165,11 +165,15 @@ def get_stats(
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
+    model_id: Optional[str] = None,
+    prediction: Optional[str] = None,
 ) -> dict:
     df = get_df()
     filtered = _apply_filters(
         df, split, phase, surgery_type, camera, procedure_id, take_id
     )
+    if model_id:
+        filtered = _apply_prediction_filter(filtered, model_id, prediction)
     total = len(filtered)
 
     def counts(col: str) -> list[dict]:
@@ -198,29 +202,29 @@ def get_images(
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
     model_id: Optional[str] = None,
+    prediction: Optional[str] = None,
 ) -> dict:
     df = get_df()
     filtered = _apply_filters(
         df, split, phase, surgery_type, camera, procedure_id, take_id
     )
+
+    pred_map = {}
+    if model_id:
+        pred_df = get_model_predictions(model_id)
+        if pred_df is not None:
+            pred_map = dict(zip(pred_df["path"], pred_df["predicted"]))
+        filtered = _apply_prediction_filter(filtered, model_id, prediction, pred_map)
+
     total = len(filtered)
     start = (page - 1) * page_size
     end = start + page_size
     page_df = filtered.iloc[start:end]
 
-    pred_df = None
-    if model_id:
-        pred_df = get_model_predictions(model_id)
-        if pred_df is not None:
-            pred_map = dict(zip(pred_df["path"], pred_df["predicted"]))
-        else:
-            pred_map = {}
-    else:
-        pred_map = {}
-
     items = []
     for _, row in page_df.iterrows():
         path = str(row["path"])
+        model_predicted = pred_map.get(path)
         items.append({
             "path": path,
             "image_url": f"/images/{path}",
@@ -233,7 +237,12 @@ def get_images(
             "phase": str(row["phase"]) if pd.notna(row["phase"]) else None,
             "confidence": float(row["confidence"]) if pd.notna(row["confidence"]) else None,
             "key_visual_cues": str(row["key_visual_cues"]) if pd.notna(row.get("key_visual_cues")) else "",
-            "model_predicted": pred_map.get(path),
+            "model_predicted": model_predicted,
+            "model_correct": (
+                model_predicted == str(row["phase"])
+                if model_predicted is not None and pd.notna(row["phase"])
+                else None
+            ),
         })
 
     return {
@@ -243,3 +252,26 @@ def get_images(
         "page_size": page_size,
         "total_pages": (total + page_size - 1) // page_size,
     }
+
+
+def _apply_prediction_filter(
+    df: pd.DataFrame,
+    model_id: str,
+    prediction: Optional[str],
+    pred_map: Optional[dict[str, str]] = None,
+) -> pd.DataFrame:
+    if prediction not in {"correct", "incorrect", "missing"}:
+        return df
+    if pred_map is None:
+        pred_df = get_model_predictions(model_id)
+        if pred_df is None:
+            pred_map = {}
+        else:
+            pred_map = dict(zip(pred_df["path"], pred_df["predicted"]))
+    predicted = df["path"].map(lambda path: pred_map.get(str(path)))
+    if prediction == "missing":
+        return df[predicted.isna()]
+    correct = predicted == df["phase"]
+    if prediction == "correct":
+        return df[predicted.notna() & correct]
+    return df[predicted.notna() & ~correct]

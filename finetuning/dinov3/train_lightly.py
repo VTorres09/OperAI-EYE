@@ -312,8 +312,8 @@ def prepare_lightly_data_from_hf(
 def data_config(manifest: dict[str, Any]) -> dict[str, Any]:
     csv_config = manifest["csv"]
     return {
-        "train_csv": csv_config["train_csv"],
-        "val_csv": csv_config["val_csv"],
+        "train": csv_config["train_csv"],
+        "val": csv_config["val_csv"],
         "classes": CLASSES,
         "csv_image_column": csv_config["csv_image_column"],
         "csv_label_column": csv_config["csv_label_column"],

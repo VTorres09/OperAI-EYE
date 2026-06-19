@@ -6,6 +6,20 @@
       "description": "Moondream2 full test evaluation on OperAI-EYE private HF dataset. Run on Lightning NVIDIA L4 with four parallel shards.",
       "labels_file": "hf://datasets/OperAI-Research/operai-eye-exocentric-rgb-test@b363f3b89449b9d3367e19719178e1199d0b324d/labels/test_labels.csv",
       "results_file": "eval_results_moondream2_2025_01_09_test.csv"
+    },
+    "dinov3_vitb16_lightly_best": {
+      "model_name": "DINOv3 ViT-B/16 Lightly best",
+      "prompt_file": "finetuning/dinov3/evaluate_lightly.py",
+      "description": "LightlyTrain DINOv3 ViT-B/16 multilabel best checkpoint evaluated on the pinned private test split.",
+      "labels_file": "hf://datasets/OperAI-Research/operai-eye-exocentric-rgb-test@b363f3b89449b9d3367e19719178e1199d0b324d/labels/test_labels.csv",
+      "results_file": "eval_results_dinov3_vitb16_lightly_best.csv"
+    },
+    "moondream3_sft_10k_best": {
+      "model_name": "Moondream3 SFT 10k best",
+      "prompt_file": "prepare_sft_dataset.QUESTION",
+      "description": "Moondream Cloud fine-tune best checkpoint evaluated on the pinned private test split.",
+      "labels_file": "hf://datasets/OperAI-Research/operai-eye-exocentric-rgb-test@b363f3b89449b9d3367e19719178e1199d0b324d/labels/test_labels.csv",
+      "results_file": "eval_results_moondream3_sft_10k_best.csv"
     }
   }
 }

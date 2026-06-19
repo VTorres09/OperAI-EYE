@@ -1,8 +1,13 @@
 """Tests for Moondream SFT request shaping, metrics, and resume behavior."""
 
 import unittest
+import csv
+import tempfile
+from pathlib import Path
+
 from PIL import Image
 
+from finetuning.moondream import evaluate_finetune
 from finetuning.moondream import finetune_moondream as finetune
 
 
@@ -117,6 +122,45 @@ class MetricsTest(unittest.TestCase):
             finetune.parse_phase("It could be IDLE or UNKNOWN"),
             "UNKNOWN",
         )
+
+    def test_cloud_evaluation_resume_retries_error_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "results.csv"
+            with path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "path",
+                        "ground_truth",
+                        "predicted",
+                        "confidence",
+                        "key_visual_cues",
+                        "correct",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "path": "ok.png",
+                        "ground_truth": "IDLE",
+                        "predicted": "IDLE",
+                        "confidence": 1.0,
+                        "key_visual_cues": "IDLE",
+                        "correct": True,
+                    }
+                )
+                writer.writerow(
+                    {
+                        "path": "retry.png",
+                        "ground_truth": "IDLE",
+                        "predicted": "UNKNOWN",
+                        "confidence": 0.0,
+                        "key_visual_cues": "ERROR: HTTP Error 429: Too Many Requests",
+                        "correct": False,
+                    }
+                )
+
+            self.assertEqual(evaluate_finetune.successful_paths(path), {"ok.png"})
 
 
 if __name__ == "__main__":

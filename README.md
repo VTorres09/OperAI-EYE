@@ -164,6 +164,7 @@ uv run --with lightly-train python -m finetuning.dinov3.train_lightly train \
 
 Outputs are prepared under `output/lightly_dinov3/` and Lightly checkpoints/logs
 go under `output/lightly_dinov3/runs/dinov3_vitb16_multilabel/`.
+The completed DINOv3 run report is in `finetuning/dinov3/REPORT.md`.
 
 ### 3. Evaluate model
 

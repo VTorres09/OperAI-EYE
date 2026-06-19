@@ -5,6 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import torch
+
+from finetuning.dinov3 import evaluate_lightly
 from finetuning.dinov3 import train_lightly
 
 
@@ -106,8 +109,23 @@ class LightlyDinov3PreparationTest(unittest.TestCase):
             )
 
             config = train_lightly.data_config(manifest)
+            self.assertEqual(config["train"], str(work_dir / "train.csv"))
+            self.assertEqual(config["val"], str(work_dir / "validation.csv"))
             self.assertEqual(config["classes"], train_lightly.CLASSES)
             self.assertEqual(config["csv_label_type"], "name")
+            self.assertNotIn("train_csv", config)
+            self.assertNotIn("val_csv", config)
+
+    def test_export_state_keys_are_normalized_for_inference(self) -> None:
+        state = {
+            "model.backbone.weight": torch.tensor([1.0]),
+            "model.class_head.bias": torch.tensor([0.5]),
+        }
+
+        normalized = evaluate_lightly.normalize_train_model_state(state)
+
+        self.assertEqual(set(normalized), {"backbone.weight", "class_head.bias"})
+        self.assertIs(normalized["backbone.weight"], state["model.backbone.weight"])
 
 
 if __name__ == "__main__":

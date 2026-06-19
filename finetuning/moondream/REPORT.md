@@ -102,6 +102,73 @@ Final 10k per-class metrics:
 | `SURGERY_ACTIVE` | 528 | 0.5871 | 0.7083 | 0.6421 |
 | `UNKNOWN` | 126 | 0.9035 | 0.8175 | 0.8583 |
 
+## Test Split Metadata Evaluation
+
+The fine-tuned Moondream3 checkpoint was re-evaluated on the pinned private test
+dataset revision `b363f3b89449b9d3367e19719178e1199d0b324d`. Ground-truth
+`UNKNOWN` rows are ignored, leaving 22,892 labeled test images. The test split
+contains one surgery type (`MISS`), five cameras, and three procedure/take
+groups.
+
+Overall test result:
+
+| Images | Correct | Accuracy | Macro-F1 |
+|---:|---:|---:|---:|
+| 22,892 | 18,206 | 0.7953 | 0.8117 |
+
+Per-class test metrics:
+
+| Class | Support | Precision | Recall | F1 |
+|---|---:|---:|---:|---:|
+| `IDLE` | 1,506 | 0.8752 | 0.9920 | 0.9300 |
+| `PATIENT_IN_ROOM` | 15,558 | 0.8824 | 0.8096 | 0.8444 |
+| `SURGERY_ACTIVE` | 5,828 | 0.6204 | 0.7062 | 0.6606 |
+
+### Test Metrics by Camera
+
+| Camera | Images | Correct | Accuracy | Macro-F1 | IDLE F1 | PIR F1 | SA F1 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| external_1 | 4,534 | 3,559 | 0.7850 | 0.8421 | 0.9985 | 0.8373 | 0.6905 |
+| external_2 | 4,599 | 3,837 | 0.8343 | 0.7428 | 0.9800 | 0.8969 | 0.3515 |
+| external_3 | 4,600 | 3,308 | 0.7191 | 0.7943 | 0.9945 | 0.6749 | 0.7136 |
+| external_4 | 4,561 | 3,764 | 0.8253 | 0.7346 | 0.9270 | 0.8904 | 0.3866 |
+| external_5 | 4,598 | 3,738 | 0.8130 | 0.7734 | 0.6968 | 0.8431 | 0.7804 |
+
+Camera-level pattern: `external_2` has the best overall accuracy, while
+`external_3` has the weakest overall accuracy but high `SURGERY_ACTIVE` recall.
+`external_2` and `external_4` are the weakest cameras for `SURGERY_ACTIVE` F1.
+
+### Test Camera Metrics by Class
+
+| Camera | Class | Support | Precision | Recall | F1 |
+|---|---|---:|---:|---:|---:|
+| external_1 | `IDLE` | 335 | 1.0000 | 0.9970 | 0.9985 |
+| external_1 | `PATIENT_IN_ROOM` | 2,986 | 0.8766 | 0.8014 | 0.8373 |
+| external_1 | `SURGERY_ACTIVE` | 1,213 | 0.6951 | 0.6859 | 0.6905 |
+| external_2 | `IDLE` | 319 | 0.9608 | 1.0000 | 0.9800 |
+| external_2 | `PATIENT_IN_ROOM` | 3,730 | 0.9052 | 0.8887 | 0.8969 |
+| external_2 | `SURGERY_ACTIVE` | 550 | 0.3355 | 0.3691 | 0.3515 |
+| external_3 | `IDLE` | 366 | 0.9945 | 0.9945 | 0.9945 |
+| external_3 | `PATIENT_IN_ROOM` | 2,562 | 0.9497 | 0.5234 | 0.6749 |
+| external_3 | `SURGERY_ACTIVE` | 1,672 | 0.5682 | 0.9587 | 0.7136 |
+| external_4 | `IDLE` | 301 | 0.8875 | 0.9701 | 0.9270 |
+| external_4 | `PATIENT_IN_ROOM` | 3,493 | 0.8570 | 0.9264 | 0.8904 |
+| external_4 | `SURGERY_ACTIVE` | 767 | 0.5198 | 0.3077 | 0.3866 |
+| external_5 | `IDLE` | 185 | 0.5347 | 1.0000 | 0.6968 |
+| external_5 | `PATIENT_IN_ROOM` | 2,787 | 0.8575 | 0.8292 | 0.8431 |
+| external_5 | `SURGERY_ACTIVE` | 1,626 | 0.7977 | 0.7638 | 0.7804 |
+
+### Test Metrics by Procedure and Take
+
+| Procedure | Take | Images | Correct | Accuracy | Macro-F1 | IDLE F1 | PIR F1 | SA F1 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 12,802 | 10,816 | 0.8449 | 0.7402 | 0.9300 | 0.9010 | 0.3895 |
+| 2 | 2 | 4,050 | 3,084 | 0.7615 | 0.5071 | 0.0000 | 0.7459 | 0.7752 |
+| 3 | 6 | 6,040 | 4,306 | 0.7129 | 0.4745 | 0.0000 | 0.7300 | 0.6935 |
+
+Procedure/take groups 2 and 3 have no ground-truth `IDLE` support after
+excluding `UNKNOWN`, so their `IDLE` F1 is `0.0000` by definition.
+
 ## Local Organization
 
 Moondream-specific code and reporting now live under:
