@@ -166,6 +166,18 @@ Outputs are prepared under `output/lightly_dinov3/` and Lightly checkpoints/logs
 go under `output/lightly_dinov3/runs/dinov3_vitb16_multilabel/`.
 The completed DINOv3 run report is in `finetuning/dinov3/REPORT.md`.
 
+### Run DINOv3 continuously on Raspberry Pi
+
+The `edge_app/` package is a 24/7 Raspberry Pi runtime for the fine-tuned
+DINOv3 model. Every minute it captures a five-frame burst at one frame per
+second, performs one batched ONNX inference call, and stores the majority-vote
+result locally. It includes Picamera2/USB camera support, systemd deployment,
+SQLite history, bounded optional image retention, and replay from extracted
+frames, EgoExOR HDF5 files, or conventional video.
+
+See [`docs/raspberry_pi_edge.md`](docs/raspberry_pi_edge.md) for model export,
+installation, replay, and operations.
+
 ### 3. Evaluate model
 
 ```bash
@@ -211,6 +223,8 @@ The Vite dev server proxies `/api` requests to `localhost:8000`.
 ├── finetuning/                  # Model-specific fine-tuning entry points
 │   ├── dinov3/                  # LightlyTrain DINOv3 multilabel classifier
 │   └── moondream/               # Resumable Moondream Cloud SFT and report
+├── edge_app/                    # Raspberry Pi capture, DINO inference, voting
+├── deploy/raspberry-pi/         # systemd unit and production config example
 ├── evaluate_moondream.py        # Step 3: local model evaluation
 ├── run.py                       # Visualization server entry point
 ├── app/                         # FastAPI backend
