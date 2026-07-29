@@ -123,7 +123,37 @@ SQLite stores probabilities, timing, capture counts, and errors. With
 `UNKNOWN` bursts and `all` retains every burst. Image cleanup uses
 `retention_days`.
 
-## 4. Offline dataset replay
+## 4. Live camera dashboard
+
+For setup, demonstrations, or a permanently attached display, start the local
+camera UI:
+
+```bash
+uv run --extra edge operai-edge --config ./edge.local.toml ui
+```
+
+The command opens `http://127.0.0.1:8765`. Press **Enable camera** and grant
+camera access to the browser. The page shows a continuous preview, samples five
+frames one second apart, sends all five to the local ONNX model in one request,
+and presents the individual predictions and majority vote. It repeats on the
+configured 60-second schedule and writes results to the same SQLite database.
+
+This mode deliberately lets the browser own the camera. On macOS that means
+camera permission belongs to Safari, Chrome, or the browser you use—not to the
+terminal application. No image or prediction leaves the device.
+
+To view the dashboard from another computer on the same trusted network:
+
+```bash
+operai-edge --config /etc/operai-eye/config.toml ui \
+  --host 0.0.0.0 --port 8765 --no-open
+```
+
+Browser camera APIs require a secure context. `localhost` works without HTTPS;
+opening the Pi by a raw LAN IP may require an HTTPS reverse proxy. The ordinary
+`run` command remains the recommended unattended, display-free production mode.
+
+## 5. Offline dataset replay
 
 The EgoExOR download is stored as HDF5 frame arrays rather than ordinary video
 files. The extracted directories are the quickest debug source:

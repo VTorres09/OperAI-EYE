@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Protocol
@@ -99,13 +100,23 @@ class OpenCvSource:
                 "opencv-python-headless is required for USB cameras and video replay"
             ) from exc
         source: str | int = int(self.device) if self.device.isdecimal() else self.device
-        self.capture_handle = cv2.VideoCapture(source)
+        if sys.platform == "darwin" and isinstance(source, int):
+            self.capture_handle = cv2.VideoCapture(source, cv2.CAP_AVFOUNDATION)
+        else:
+            self.capture_handle = cv2.VideoCapture(source)
         if self.width:
             self.capture_handle.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         if self.height:
             self.capture_handle.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         if not self.capture_handle.isOpened():
             self.close()
+            if sys.platform == "darwin" and isinstance(source, int):
+                raise RuntimeError(
+                    f"Could not open camera {self.device}. On macOS, enable Camera "
+                    "access for the terminal app running operai-edge under System "
+                    "Settings > Privacy & Security > Camera, then fully quit and "
+                    "reopen that terminal before retrying."
+                )
             raise RuntimeError(f"Could not open camera/video source: {self.device}")
 
     def capture(self) -> Image.Image:

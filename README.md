@@ -178,6 +178,16 @@ frames, EgoExOR HDF5 files, or conventional video.
 See [`docs/raspberry_pi_edge.md`](docs/raspberry_pi_edge.md) for model export,
 installation, replay, and operations.
 
+To open the polished live camera view locally, use:
+
+```bash
+uv run --extra edge operai-edge --config edge.local.toml ui
+```
+
+Grant camera access in the browser. It displays the live feed, captures a
+five-frame burst, runs one local batch, and visualizes the per-frame predictions
+and majority vote every minute.
+
 ### 3. Evaluate model
 
 ```bash

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090b0f" />
+    <title>OperAI-EYE · Live</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="OperAI-EYE live dashboard">
+          <span class="brand-mark" aria-hidden="true"><i></i></span>
+          <span>OperAI–EYE</span>
+        </a>
+        <div class="topbar-center">
+          <span class="eyebrow">Edge observer</span>
+          <span class="divider"></span>
+          <span class="privacy"><span class="shield">◇</span> On-device processing</span>
+        </div>
+        <div class="connection" id="connectionStatus">
+          <span class="status-dot"></span>
+          <span>Camera offline</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div>
+            <p class="kicker">Operating room intelligence</p>
+            <h1>Live scene classification</h1>
+          </div>
+          <div class="hero-actions">
+            <div class="schedule-pill">
+              <span class="schedule-label">Next observation</span>
+              <strong id="countdown">—</strong>
+            </div>
+            <button class="primary-button" id="cameraButton">
+              <span class="button-icon">●</span>
+              <span>Enable camera</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="dashboard-grid">
+          <div class="camera-column">
+            <article class="camera-card" id="cameraCard">
+              <video id="cameraVideo" autoplay muted playsinline></video>
+              <div class="camera-empty" id="cameraEmpty">
+                <div class="camera-glyph"><span></span></div>
+                <h2>Your camera is off</h2>
+                <p>Enable it to begin private, on-device scene monitoring.</p>
+              </div>
+              <div class="video-shade"></div>
+              <div class="live-chip" id="liveChip"><span></span> Live</div>
+              <div class="resolution-chip" id="resolutionChip">—</div>
+              <div class="scan-line" aria-hidden="true"></div>
+              <div class="camera-overlay">
+                <div>
+                  <span class="overlay-label" id="overlayLabel">Awaiting camera</span>
+                  <strong class="overlay-phase" id="overlayPhase">NO SIGNAL</strong>
+                </div>
+                <div class="overlay-confidence">
+                  <span>Confidence</span>
+                  <strong id="overlayConfidence">—</strong>
+                </div>
+              </div>
+            </article>
+
+            <article class="burst-card">
+              <div class="section-heading">
+                <div>
+                  <span class="eyebrow">Current observation</span>
+                  <h2>Five-frame burst</h2>
+                </div>
+                <span class="batch-badge">Single inference batch</span>
+              </div>
+              <div class="frames" id="frames"></div>
+            </article>
+          </div>
+
+          <aside class="result-card">
+            <div class="section-heading result-heading">
+              <div>
+                <span class="eyebrow">Majority vote</span>
+                <h2>Scene result</h2>
+              </div>
+              <span class="cycle-number" id="cycleNumber">#—</span>
+            </div>
+
+            <div class="result-hero neutral" id="resultHero">
+              <span class="result-icon" id="resultIcon">◎</span>
+              <p id="resultStatus">Ready when you are</p>
+              <h3 id="resultPhase">WAITING</h3>
+              <div class="result-meta">
+                <span><strong id="winnerConfidence">—</strong> confidence</span>
+                <span><strong id="voteFraction">—</strong> vote share</span>
+              </div>
+            </div>
+
+            <div class="vote-list" id="voteList">
+              <div class="vote-row" data-phase="IDLE">
+                <div class="vote-label"><span class="phase-dot"></span><span>IDLE</span><strong>0</strong></div>
+                <div class="vote-track"><i></i></div>
+              </div>
+              <div class="vote-row" data-phase="PATIENT_IN_ROOM">
+                <div class="vote-label"><span class="phase-dot"></span><span>PATIENT IN ROOM</span><strong>0</strong></div>
+                <div class="vote-track"><i></i></div>
+              </div>
+              <div class="vote-row" data-phase="SURGERY_ACTIVE">
+                <div class="vote-label"><span class="phase-dot"></span><span>SURGERY ACTIVE</span><strong>0</strong></div>
+                <div class="vote-track"><i></i></div>
+              </div>
+            </div>
+
+            <div class="runtime-stats">
+              <div><span>Inference</span><strong id="inferenceTime">—</strong></div>
+              <div><span>Frames</span><strong id="frameCount">0 / 5</strong></div>
+              <div><span>Last updated</span><strong id="lastUpdated">—</strong></div>
+            </div>
+
+            <div class="notice">
+              <span>i</span>
+              <p>Observational aid only. This system is not a clinical safety device.</p>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="alert"></div>
+    <canvas id="captureCanvas" hidden></canvas>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

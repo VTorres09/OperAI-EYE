@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 import tempfile
 import threading
 import unittest
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 
 import numpy as np
@@ -14,8 +17,15 @@ from PIL import Image
 
 from edge_app.config import (
     DecisionConfig,
+    EdgeConfig,
     ServiceConfig,
+    StorageConfig,
     load_config,
+)
+from edge_app.dashboard import (
+    DashboardRuntime,
+    _decode_browser_image,
+    create_dashboard_app,
 )
 from edge_app.decision import (
     FramePrediction,
@@ -75,6 +85,13 @@ class FakeClassifier:
     def classify(self, images: list[Image.Image]) -> list[FramePrediction]:
         self.batch_sizes.append(len(images))
         return self.predictions[: len(images)]
+
+
+def image_data_url(color: tuple[int, int, int] = (12, 34, 56)) -> str:
+    buffer = BytesIO()
+    Image.new("RGB", (32, 24), color).save(buffer, format="JPEG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
 
 
 class DecisionTest(unittest.TestCase):
@@ -278,6 +295,97 @@ class StorageAndServiceTest(unittest.TestCase):
             self.assertEqual(classifier.batch_sizes, [5, 5])
 
 
+class DashboardTest(unittest.TestCase):
+    def test_decodes_browser_image_data_url(self) -> None:
+        image = _decode_browser_image(image_data_url())
+        self.assertEqual(image.mode, "RGB")
+        self.assertEqual(image.size, (32, 24))
+
+    def test_rejects_non_image_data_url(self) -> None:
+        with self.assertRaisesRegex(ValueError, "base64 image data URL"):
+            _decode_browser_image("hello")
+
+    def test_classifies_one_browser_burst_and_persists_vote(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = EdgeConfig(
+                service=replace(ServiceConfig(), capture_spacing_seconds=0.0),
+                storage=StorageConfig(
+                    database_path=root / "predictions.sqlite3",
+                    image_directory=root / "images",
+                ),
+            )
+            store = PredictionStore(
+                config.storage.database_path,
+                image_directory=config.storage.image_directory,
+            )
+            classifier = FakeClassifier(
+                [
+                    make_prediction("PATIENT_IN_ROOM", 0.8),
+                    make_prediction("PATIENT_IN_ROOM", 0.9),
+                    make_prediction("SURGERY_ACTIVE", 0.6),
+                    make_prediction("PATIENT_IN_ROOM", 0.7),
+                    make_prediction("SURGERY_ACTIVE", 0.6),
+                ]
+            )
+            runtime = DashboardRuntime(config, classifier=classifier, store=store)
+            result = runtime.classify_encoded_images([image_data_url()] * 5)
+            latest = store.latest()
+            store.close()
+
+            self.assertEqual(classifier.batch_sizes, [5])
+            self.assertEqual(result["vote"]["phase"], "PATIENT_IN_ROOM")
+            self.assertEqual(result["vote"]["votes"]["PATIENT_IN_ROOM"], 3)
+            self.assertEqual(len(result["predictions"]), 5)
+            self.assertEqual(latest["phase"], "PATIENT_IN_ROOM")
+
+    def test_requires_the_configured_number_of_browser_frames(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = EdgeConfig(
+                storage=StorageConfig(
+                    database_path=root / "predictions.sqlite3",
+                    image_directory=root / "images",
+                )
+            )
+            store = PredictionStore(
+                config.storage.database_path,
+                image_directory=config.storage.image_directory,
+            )
+            runtime = DashboardRuntime(
+                config,
+                classifier=FakeClassifier([]),
+                store=store,
+            )
+            with self.assertRaisesRegex(ValueError, "exactly 5 images"):
+                runtime.classify_encoded_images([image_data_url()] * 4)
+            store.close()
+
+    def test_classify_endpoint_declares_a_json_request_body(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = EdgeConfig(
+                storage=StorageConfig(
+                    database_path=root / "predictions.sqlite3",
+                    image_directory=root / "images",
+                )
+            )
+            store = PredictionStore(
+                config.storage.database_path,
+                image_directory=config.storage.image_directory,
+            )
+            app = create_dashboard_app(
+                config,
+                classifier=FakeClassifier([]),
+                store=store,
+            )
+            operation = app.openapi()["paths"]["/api/classify"]["post"]
+            store.close()
+
+            self.assertIn("requestBody", operation)
+            self.assertNotIn("parameters", operation)
+
+
 class DirectorySourceTest(unittest.TestCase):
     def test_natural_order_and_frame_step(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -295,6 +403,28 @@ class DirectorySourceTest(unittest.TestCase):
             source.close()
             self.assertEqual(first.getpixel((0, 0))[0], 1)
             self.assertEqual(second.getpixel((0, 0))[0], 10)
+
+
+class OpenCvSourceTest(unittest.TestCase):
+    def test_macos_camera_uses_avfoundation_and_reports_permission_help(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from edge_app.sources import OpenCvSource
+
+        capture = MagicMock()
+        capture.isOpened.return_value = False
+        fake_cv2 = MagicMock(CAP_AVFOUNDATION=1200)
+        fake_cv2.VideoCapture.return_value = capture
+        source = OpenCvSource("0")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict("sys.modules", {"cv2": fake_cv2}))
+            stack.enter_context(patch("edge_app.sources.sys.platform", "darwin"))
+            with self.assertRaisesRegex(RuntimeError, "Privacy & Security > Camera"):
+                source.start()
+
+        fake_cv2.VideoCapture.assert_called_once_with(0, 1200)
+        capture.release.assert_called_once_with()
 
 
 if __name__ == "__main__":
