@@ -47,6 +47,7 @@ export default function StatsSummary({ stats }) {
   return (
     <div className="stats-summary">
       <h2>Distribution</h2>
+      <Section title="Split" items={stats.by_split} />
       <Section title="Phase" items={stats.by_phase} colorMap={PHASE_COLORS} />
       <Section title="Camera" items={stats.by_camera} />
       {stats.by_surgery_type?.length > 1 && (

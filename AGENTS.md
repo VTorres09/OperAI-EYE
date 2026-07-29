@@ -22,6 +22,14 @@ uv sync  # Install dependencies (Python 3.11)
    - Loads Moondream2 model (`vikhyatk/moondream2`)
    - Outputs results to `output/eval_results.csv` and metrics to `output/eval_metrics.json`
 
+## Tests
+
+```bash
+uv run --with pytest pytest
+```
+
+Python tests live in `tests/`.
+
 ## Data Structure
 
 ```
@@ -32,11 +40,11 @@ Splits: `train`, `validation`, `test`
 
 ## Valid Phases
 
-`IDLE`, `TURNOVER`, `PATIENT_IN_ROOM`, `SURGERY_ACTIVE`, `UNKNOWN`
+`IDLE`, `PATIENT_IN_ROOM`, `SURGERY_ACTIVE`, `UNKNOWN`
 
 ## Environment Variables
 
-- `OPENAI_API_KEY` or `GEMINI_API_KEY` - Required for labeling
+- `OPENAI_API_KEY`, `MOONSHOT_API_KEY`, or `GEMINI_API_KEY` - Required for labeling
 - `OPENAI_BASE_URL` - Optional custom API endpoint
 - `MODEL_NAME` - Override default model (default: `gemini-2.0-flash`)
 

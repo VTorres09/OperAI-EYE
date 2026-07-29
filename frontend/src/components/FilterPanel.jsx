@@ -29,13 +29,45 @@ export default function FilterPanel({ filterOptions, filters, stats, onChange })
         Model
         <select
           value={filters.model_id || ''}
-          onChange={(e) => update('model_id', e.target.value)}
+          onChange={(e) => {
+            const modelId = e.target.value
+            onChange({
+              ...filters,
+              model_id: modelId,
+              prediction: modelId ? filters.prediction : '',
+            })
+          }}
         >
           <option value="">None</option>
           {models.map((m) => (
             <option key={m.model_id} value={m.model_id}>
               {m.model_name}
             </option>
+          ))}
+        </select>
+      </label>
+
+      {filters.model_id && (
+        <label>
+          Prediction
+          <select
+            value={filters.prediction || ''}
+            onChange={(e) => update('prediction', e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="incorrect">Incorrect</option>
+            <option value="correct">Correct</option>
+            <option value="missing">Missing</option>
+          </select>
+        </label>
+      )}
+
+      <label>
+        Split
+        <select value={filters.split || ''} onChange={(e) => update('split', e.target.value)}>
+          <option value="">All</option>
+          {filterOptions.splits.map((s) => (
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
       </label>

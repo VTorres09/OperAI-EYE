@@ -4,6 +4,11 @@ from typing import Optional
 import pandas as pd
 
 from hf_dataset import DatasetPreparationError, get_hf_dataset_paths
+from hf_sft_dataset import (
+    SFTDatasetPreparationError,
+    get_hf_sft_dataset_paths,
+    image_path_for_source,
+)
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 LABEL_COLUMNS = [
@@ -18,6 +23,7 @@ LABEL_COLUMNS = [
     "confidence",
     "key_visual_cues",
 ]
+SPLIT_ORDER = {"train": 0, "validation": 1, "test": 2}
 
 _df: Optional[pd.DataFrame] = None
 
@@ -29,18 +35,62 @@ def reset_cache() -> None:
 
 def get_df() -> pd.DataFrame:
     global _df
+    if _df is not None:
+        return _df
+
+    frames = []
     try:
-        labels_path = get_hf_dataset_paths(local_files_only=True).labels_path
+        test_paths = get_hf_dataset_paths(local_files_only=True)
     except DatasetPreparationError:
-        return pd.DataFrame(columns=LABEL_COLUMNS)
-    if _df is None:
-        _df = pd.read_csv(labels_path, dtype={"frame_id": str})
+        pass
+    else:
+        test_df = pd.read_csv(test_paths.labels_path, dtype={"frame_id": str})
+        test_df = test_df[test_df["path"] != "path"].copy()
+        test_df["split"] = test_df["split"].fillna("test")
+        frames.append(test_df)
+
+    try:
+        sft_paths = get_hf_sft_dataset_paths(local_files_only=True)
+    except SFTDatasetPreparationError:
+        pass
+    else:
+        sft_frames = []
+        for split, labels_path in sft_paths.labels_paths.items():
+            split_df = pd.read_csv(labels_path, dtype={"frame_id": str})
+            split_df = split_df[split_df["path"] != "path"].copy()
+            split_df["split"] = split
+            split_df = split_df[
+                split_df["path"].map(
+                    lambda path: image_path_for_source(sft_paths, str(path))
+                    is not None
+                )
+            ]
+            sft_frames.append(split_df)
+        if sft_frames:
+            frames.append(pd.concat(sft_frames, ignore_index=True))
+
+    if frames:
+        _df = pd.concat(frames, ignore_index=True)
+        for column in LABEL_COLUMNS:
+            if column not in _df.columns:
+                _df[column] = None
+        _df = _df[LABEL_COLUMNS]
         _df["confidence"] = pd.to_numeric(_df["confidence"], errors="coerce")
-        _df = _df[_df["path"] != "path"].reset_index(drop=True)
+        _df = _df.reset_index(drop=True)
+    else:
+        _df = pd.DataFrame(columns=LABEL_COLUMNS)
     return _df
 
 
 def get_image_path(relative_path: Path) -> Optional[Path]:
+    parts = relative_path.parts
+    if parts and parts[0] in {"train", "validation"}:
+        try:
+            sft_paths = get_hf_sft_dataset_paths(local_files_only=True)
+        except SFTDatasetPreparationError:
+            return None
+        return image_path_for_source(sft_paths, str(relative_path))
+
     try:
         snapshot_path = get_hf_dataset_paths(local_files_only=True).snapshot_path
     except DatasetPreparationError:
@@ -49,8 +99,19 @@ def get_image_path(relative_path: Path) -> Optional[Path]:
     return image_path if image_path.is_file() else None
 
 
+def _ordered_values(values: list) -> list:
+    return sorted(
+        values,
+        key=lambda value: (
+            SPLIT_ORDER.get(str(value), 100),
+            str(value),
+        ),
+    )
+
+
 def _apply_filters(
     df: pd.DataFrame,
+    split: Optional[str] = None,
     phase: Optional[str] = None,
     surgery_type: Optional[str] = None,
     camera: Optional[str] = None,
@@ -58,6 +119,8 @@ def _apply_filters(
     take_id: Optional[int] = None,
 ) -> pd.DataFrame:
     mask = pd.Series(True, index=df.index)
+    if split:
+        mask &= df["split"] == split
     if phase:
         mask &= df["phase"] == phase
     if surgery_type:
@@ -74,6 +137,7 @@ def _apply_filters(
 def get_filter_options() -> dict:
     df = get_df()
     return {
+        "splits": _ordered_values(df["split"].dropna().unique().tolist()),
         "phases": sorted(df["phase"].dropna().unique().tolist()),
         "surgery_types": sorted(df["surgery_type"].dropna().unique().tolist()),
         "cameras": sorted(df["camera"].dropna().unique().tolist()),
@@ -95,16 +159,21 @@ def get_model_predictions(model_id: str) -> Optional[pd.DataFrame]:
 
 
 def get_stats(
+    split: Optional[str] = None,
     phase: Optional[str] = None,
     surgery_type: Optional[str] = None,
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
+    model_id: Optional[str] = None,
+    prediction: Optional[str] = None,
 ) -> dict:
     df = get_df()
     filtered = _apply_filters(
-        df, phase, surgery_type, camera, procedure_id, take_id
+        df, split, phase, surgery_type, camera, procedure_id, take_id
     )
+    if model_id:
+        filtered = _apply_prediction_filter(filtered, model_id, prediction)
     total = len(filtered)
 
     def counts(col: str) -> list[dict]:
@@ -116,6 +185,7 @@ def get_stats(
 
     return {
         "total": total,
+        "by_split": counts("split"),
         "by_phase": counts("phase"),
         "by_camera": counts("camera"),
         "by_surgery_type": counts("surgery_type"),
@@ -125,35 +195,36 @@ def get_stats(
 def get_images(
     page: int = 1,
     page_size: int = 20,
+    split: Optional[str] = None,
     phase: Optional[str] = None,
     surgery_type: Optional[str] = None,
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
     model_id: Optional[str] = None,
+    prediction: Optional[str] = None,
 ) -> dict:
     df = get_df()
     filtered = _apply_filters(
-        df, phase, surgery_type, camera, procedure_id, take_id
+        df, split, phase, surgery_type, camera, procedure_id, take_id
     )
+
+    pred_map = {}
+    if model_id:
+        pred_df = get_model_predictions(model_id)
+        if pred_df is not None:
+            pred_map = dict(zip(pred_df["path"], pred_df["predicted"]))
+        filtered = _apply_prediction_filter(filtered, model_id, prediction, pred_map)
+
     total = len(filtered)
     start = (page - 1) * page_size
     end = start + page_size
     page_df = filtered.iloc[start:end]
 
-    pred_df = None
-    if model_id:
-        pred_df = get_model_predictions(model_id)
-        if pred_df is not None:
-            pred_map = dict(zip(pred_df["path"], pred_df["predicted"]))
-        else:
-            pred_map = {}
-    else:
-        pred_map = {}
-
     items = []
     for _, row in page_df.iterrows():
         path = str(row["path"])
+        model_predicted = pred_map.get(path)
         items.append({
             "path": path,
             "image_url": f"/images/{path}",
@@ -166,7 +237,12 @@ def get_images(
             "phase": str(row["phase"]) if pd.notna(row["phase"]) else None,
             "confidence": float(row["confidence"]) if pd.notna(row["confidence"]) else None,
             "key_visual_cues": str(row["key_visual_cues"]) if pd.notna(row.get("key_visual_cues")) else "",
-            "model_predicted": pred_map.get(path),
+            "model_predicted": model_predicted,
+            "model_correct": (
+                model_predicted == str(row["phase"])
+                if model_predicted is not None and pd.notna(row["phase"])
+                else None
+            ),
         })
 
     return {
@@ -176,3 +252,26 @@ def get_images(
         "page_size": page_size,
         "total_pages": (total + page_size - 1) // page_size,
     }
+
+
+def _apply_prediction_filter(
+    df: pd.DataFrame,
+    model_id: str,
+    prediction: Optional[str],
+    pred_map: Optional[dict[str, str]] = None,
+) -> pd.DataFrame:
+    if prediction not in {"correct", "incorrect", "missing"}:
+        return df
+    if pred_map is None:
+        pred_df = get_model_predictions(model_id)
+        if pred_df is None:
+            pred_map = {}
+        else:
+            pred_map = dict(zip(pred_df["path"], pred_df["predicted"]))
+    predicted = df["path"].map(lambda path: pred_map.get(str(path)))
+    if prediction == "missing":
+        return df[predicted.isna()]
+    correct = predicted == df["phase"]
+    if prediction == "correct":
+        return df[predicted.notna() & correct]
+    return df[predicted.notna() & ~correct]

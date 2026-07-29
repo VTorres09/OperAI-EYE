@@ -1,0 +1,28 @@
+{
+  "accuracy": 0.7476,
+  "correct": 17115,
+  "per_class": {
+    "IDLE": {
+      "correct": 1495,
+      "f1": 0.9231,
+      "precision": 0.8627,
+      "recall": 0.9927,
+      "total": 1506
+    },
+    "PATIENT_IN_ROOM": {
+      "correct": 11004,
+      "f1": 0.7921,
+      "precision": 0.9,
+      "recall": 0.7073,
+      "total": 15558
+    },
+    "SURGERY_ACTIVE": {
+      "correct": 4616,
+      "f1": 0.6255,
+      "precision": 0.5168,
+      "recall": 0.792,
+      "total": 5828
+    }
+  },
+  "total": 22892
+}

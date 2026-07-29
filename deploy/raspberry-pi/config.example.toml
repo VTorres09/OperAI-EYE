@@ -1,0 +1,39 @@
+[service]
+# A burst starts every 60 seconds. Frames are captured at t=0,1,2,3,4.
+interval_seconds = 60.0
+burst_size = 5
+capture_spacing_seconds = 1.0
+minimum_captures = 3
+run_immediately = true
+# Exit after repeated failures so systemd can recreate the camera/model process.
+restart_after_failures = 5
+
+[camera]
+# Use "opencv" and device "0" for a USB camera.
+backend = "picamera2"
+width = 1920
+height = 1080
+rotation = 0
+device = "0"
+warmup_seconds = 2.0
+
+[model]
+path = "/opt/operai-eye/models/operai_eye_dinov3.int8.onnx"
+# Defaults to a .json file next to the model when omitted.
+# metadata_path = "/opt/operai-eye/models/operai_eye_dinov3.int8.json"
+intra_op_threads = 4
+inter_op_threads = 1
+
+[decision]
+# A 2-2-1 split has no majority and becomes UNKNOWN.
+minimum_vote_fraction = 0.6
+# Set this above zero only after calibrating it against deployment-camera data.
+minimum_phase_confidence = 0.0
+
+[storage]
+database_path = "/var/lib/operai-eye/predictions.sqlite3"
+image_directory = "/var/lib/operai-eye/images"
+# "none" avoids retaining sensitive OR images. Other values: "uncertain", "all".
+retain_images = "none"
+retention_days = 7
+jpeg_quality = 85

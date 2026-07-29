@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROMPT_PATH = Path("prompts/or_phase_simple.txt")
 OUTPUT_DIR = Path("output")
 VALID_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
+EVALUATION_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -120,6 +121,19 @@ def load_labels(labels_path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def filter_evaluation_labels(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    filtered = [
+        row
+        for row in rows
+        if (row.get("phase") or "").strip() in EVALUATION_PHASES
+        and not (row.get("error") or "").strip()
+    ]
+    ignored = len(rows) - len(filtered)
+    if ignored:
+        logger.info("Ignoring %d rows outside evaluation phases", ignored)
+    return filtered
+
+
 def parse_response(text: str) -> dict[str, Any]:
     text = text.strip()
     if text.startswith("```"):
@@ -149,6 +163,11 @@ def evaluate_image(model: Any, image_path: Path, prompt: str) -> dict[str, Any]:
 
 
 def compute_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
+    results = [
+        result
+        for result in results
+        if result.get("ground_truth") in EVALUATION_PHASES
+    ]
     total = len(results)
     correct = sum(1 for r in results if r["ground_truth"] == r["predicted"])
     accuracy = correct / total if total > 0 else 0.0
@@ -199,8 +218,6 @@ def load_existing_eval_results(output_path: Path) -> set[str]:
 
 
 def main() -> int:
-    from datetime import datetime
-    
     args = parse_args()
     try:
         dataset = get_hf_dataset_paths(
@@ -223,6 +240,7 @@ def main() -> int:
     labels = load_labels(dataset.labels_path)
     if args.limit:
         labels = labels[: args.limit]
+    labels = filter_evaluation_labels(labels)
     
     # Handle model versioning
     model_id = args.model_id

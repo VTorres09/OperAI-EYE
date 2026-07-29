@@ -9,6 +9,16 @@ from fastapi.staticfiles import StaticFiles
 
 from hf_dataset import DatasetPreparationError, dataset_status, prepare_hf_dataset
 
+from .audit_data import (
+    audit_filter_options,
+    get_audit_candidates,
+    get_audit_image_path,
+    get_audit_status,
+    prepare_audit_dataset,
+    publish_audit_corrections,
+    save_audit_correction,
+    stage_audit_corrections,
+)
 from .data import get_filter_options, get_image_path, get_images, get_stats, reset_cache
 from .eval_data import (
     compare_models,
@@ -17,6 +27,11 @@ from .eval_data import (
     list_models,
     register_model,
 )
+
+try:
+    from pydantic import BaseModel
+except ImportError:  # pragma: no cover
+    BaseModel = object
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -35,6 +50,15 @@ _dataset_download_state = {
     "message": "",
     "error": None,
 }
+
+
+class AuditCorrectionRequest(BaseModel):
+    path: str
+    split: str
+    original_phase: str
+    corrected_phase: str = ""
+    note: str = ""
+    reviewed: bool = True
 
 
 def _set_dataset_download_state(state: str, message: str = "", error: str | None = None) -> None:
@@ -100,26 +124,110 @@ def serve_image(image_path: str):
     return FileResponse(file_path)
 
 
+@app.get("/sft-images/{image_path:path}", include_in_schema=False)
+def serve_sft_image(image_path: str):
+    requested_path = Path(image_path)
+    if requested_path.is_absolute() or ".." in requested_path.parts:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    file_path = get_audit_image_path(requested_path)
+    if file_path is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(file_path)
+
+
+@app.get("/api/audit/status")
+def audit_status():
+    return get_audit_status()
+
+
+@app.post("/api/audit/prepare")
+def audit_prepare():
+    return prepare_audit_dataset()
+
+
+@app.get("/api/audit/filters")
+def audit_filters():
+    return audit_filter_options()
+
+
+@app.get("/api/audit/candidates")
+def audit_candidates(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(24, ge=1, le=100),
+    priority: Optional[str] = None,
+    split: Optional[str] = None,
+    reason: Optional[str] = None,
+    reviewed: Optional[bool] = None,
+):
+    try:
+        return get_audit_candidates(
+            page=page,
+            page_size=page_size,
+            priority=priority,
+            split=split,
+            reason=reason,
+            reviewed=reviewed,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/audit/corrections")
+def audit_corrections(request: AuditCorrectionRequest):
+    try:
+        return save_audit_correction(
+            path=request.path,
+            split=request.split,
+            original_phase=request.original_phase,
+            corrected_phase=request.corrected_phase,
+            note=request.note,
+            reviewed=request.reviewed,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/audit/stage")
+def audit_stage():
+    try:
+        return stage_audit_corrections()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/audit/publish")
+def audit_publish():
+    try:
+        return publish_audit_corrections()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @app.get("/api/images")
 def list_images(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    split: Optional[str] = None,
     phase: Optional[str] = None,
     surgery_type: Optional[str] = None,
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
     model_id: Optional[str] = None,
+    prediction: Optional[str] = None,
 ):
     return get_images(
         page=page,
         page_size=page_size,
+        split=split,
         phase=phase,
         surgery_type=surgery_type,
         camera=camera,
         procedure_id=procedure_id,
         take_id=take_id,
         model_id=model_id,
+        prediction=prediction,
     )
 
 
@@ -130,18 +238,24 @@ def filters():
 
 @app.get("/api/stats")
 def stats(
+    split: Optional[str] = None,
     phase: Optional[str] = None,
     surgery_type: Optional[str] = None,
     camera: Optional[str] = None,
     procedure_id: Optional[int] = None,
     take_id: Optional[int] = None,
+    model_id: Optional[str] = None,
+    prediction: Optional[str] = None,
 ):
     return get_stats(
+        split=split,
         phase=phase,
         surgery_type=surgery_type,
         camera=camera,
         procedure_id=procedure_id,
         take_id=take_id,
+        model_id=model_id,
+        prediction=prediction,
     )
 
 
