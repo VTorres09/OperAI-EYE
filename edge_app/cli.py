@@ -43,6 +43,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     subparsers.add_parser("run", help="Run the Raspberry Pi camera service forever.")
     subparsers.add_parser("once", help="Capture and classify one camera burst.")
 
+    dashboard = subparsers.add_parser(
+        "ui", help="Open a live browser camera dashboard with batched inference."
+    )
+    dashboard.add_argument("--host", default="127.0.0.1")
+    dashboard.add_argument("--port", type=int, default=8765)
+    dashboard.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Start the dashboard without opening a browser automatically.",
+    )
+
     status = subparsers.add_parser("status", help="Print local service status as JSON.")
     status.add_argument("--hours", type=int, default=24)
 
@@ -143,6 +154,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     config = _load(args)
+    if args.command == "ui":
+        from .dashboard import run_dashboard
+
+        run_dashboard(
+            config,
+            host=args.host,
+            port=args.port,
+            open_browser=not args.no_open,
+        )
+        return 0
+
     store = _store(config)
     try:
         if args.command == "status":

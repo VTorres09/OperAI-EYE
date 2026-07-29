@@ -40,5 +40,8 @@ operai-edge = "edge_app.cli:main"
 [tool.setuptools.packages.find]
 include = ["edge_app*"]
 
+[tool.setuptools.package-data]
+edge_app = ["ui/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
