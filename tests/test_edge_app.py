@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import threading
 import unittest
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -295,6 +296,28 @@ class DirectorySourceTest(unittest.TestCase):
             source.close()
             self.assertEqual(first.getpixel((0, 0))[0], 1)
             self.assertEqual(second.getpixel((0, 0))[0], 10)
+
+
+class OpenCvSourceTest(unittest.TestCase):
+    def test_macos_camera_uses_avfoundation_and_reports_permission_help(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from edge_app.sources import OpenCvSource
+
+        capture = MagicMock()
+        capture.isOpened.return_value = False
+        fake_cv2 = MagicMock(CAP_AVFOUNDATION=1200)
+        fake_cv2.VideoCapture.return_value = capture
+        source = OpenCvSource("0")
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict("sys.modules", {"cv2": fake_cv2}))
+            stack.enter_context(patch("edge_app.sources.sys.platform", "darwin"))
+            with self.assertRaisesRegex(RuntimeError, "Privacy & Security > Camera"):
+                source.start()
+
+        fake_cv2.VideoCapture.assert_called_once_with(0, 1200)
+        capture.release.assert_called_once_with()
 
 
 if __name__ == "__main__":
