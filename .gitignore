@@ -230,6 +230,11 @@ output/*
 # frontend build output
 static/
 
+# Raspberry Pi edge runtime artifacts
+models/
+edge_state/
+edge.local.toml
+
 # Playwright
 .playwright
 .playwright-cli

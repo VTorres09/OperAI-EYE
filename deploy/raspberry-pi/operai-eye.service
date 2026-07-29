@@ -1,0 +1,28 @@
+[Unit]
+Description=OperAI-EYE DINOv3 operating-room phase classifier
+After=local-fs.target
+
+[Service]
+Type=simple
+User=operai
+Group=operai
+SupplementaryGroups=video
+WorkingDirectory=/opt/operai-eye
+ExecStart=/opt/operai-eye/.venv/bin/operai-edge --config /etc/operai-eye/config.toml run
+Restart=always
+RestartSec=10
+TimeoutStopSec=20
+
+StateDirectory=operai-eye
+ConfigurationDirectory=operai-eye
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/operai-eye
+UMask=0077
+StateDirectoryMode=0700
+ConfigurationDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target
