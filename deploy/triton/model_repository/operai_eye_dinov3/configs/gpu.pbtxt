@@ -1,0 +1,44 @@
+name: "operai_eye_dinov3"
+platform: "onnxruntime_onnx"
+max_batch_size: 15
+
+input [
+  {
+    name: "images"
+    data_type: TYPE_FP32
+    dims: [3, 224, 224]
+  }
+]
+
+output [
+  {
+    name: "logits"
+    data_type: TYPE_FP32
+    dims: [4]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [5, 10, 15]
+  max_queue_delay_microseconds: 2000
+}
+
+optimization {
+  graph {
+    level: 1
+  }
+  execution_accelerators {
+    gpu_execution_accelerator [
+      {
+        name: "cuda"
+      }
+    ]
+  }
+}

@@ -146,6 +146,7 @@ def create_dashboard_app(
     *,
     classifier: Any | None = None,
     store: PredictionStore | None = None,
+    serve_ui: bool = True,
 ):
     """Build the FastAPI dashboard without touching the operating-system camera."""
 
@@ -162,15 +163,29 @@ def create_dashboard_app(
 
     app = FastAPI(title="OperAI-EYE live camera", lifespan=lifespan)
     app.state.dashboard_runtime = runtime
-    app.mount("/assets", StaticFiles(directory=UI_DIRECTORY), name="edge-ui-assets")
+    if serve_ui:
+        app.mount("/assets", StaticFiles(directory=UI_DIRECTORY), name="edge-ui-assets")
 
-    @app.get("/", include_in_schema=False)
-    async def dashboard():
-        return FileResponse(UI_DIRECTORY / "index.html")
+        @app.get("/", include_in_schema=False)
+        async def dashboard():
+            return FileResponse(UI_DIRECTORY / "index.html")
 
     @app.get("/api/config")
     async def dashboard_config():
         return runtime.public_config()
+
+    @app.get("/api/health/live")
+    async def health_live():
+        return {"status": "ok"}
+
+    @app.get("/api/health/ready")
+    async def health_ready():
+        checker = getattr(runtime.classifier, "is_ready", None)
+        if checker is not None and not checker():
+            raise HTTPException(
+                status_code=503, detail="Inference backend is not ready"
+            )
+        return {"status": "ready"}
 
     @app.post("/api/classify")
     async def classify(payload: dict[str, list[str]]):

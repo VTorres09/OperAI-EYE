@@ -188,6 +188,17 @@ Grant camera access in the browser. It displays the live feed, captures a
 five-frame burst, runs one local batch, and visualizes the per-frame predictions
 and majority vote every minute.
 
+For a container deployment with separate Triton, FastAPI, and Nginx services:
+
+```bash
+cp .env.compose.example .env
+docker compose up -d --build
+```
+
+Then open `http://localhost:8080`. See
+[`docs/docker_compose.md`](docs/docker_compose.md) for Raspberry Pi guidance,
+INT8/FP32 selection, persistent data, health checks, and GPU notes.
+
 ### 3. Evaluate model
 
 ```bash

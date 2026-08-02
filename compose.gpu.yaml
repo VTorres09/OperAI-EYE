@@ -1,0 +1,16 @@
+services:
+  triton:
+    command:
+      - tritonserver
+      - --model-repository=/models
+      - --model-config-name=gpu
+      - --strict-model-config=true
+      - --log-info=true
+      - --exit-on-error=true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

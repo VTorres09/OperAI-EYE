@@ -1,0 +1,23 @@
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+COPY deploy/docker/backend-requirements.txt /tmp/backend-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/backend-requirements.txt \
+    && groupadd --gid 10001 operai \
+    && useradd --uid 10001 --gid operai --no-create-home operai \
+    && mkdir -p /data \
+    && chown operai:operai /data
+
+COPY --chown=operai:operai edge_app /app/edge_app
+COPY --chown=operai:operai deploy/docker/config.toml /app/config.toml
+
+USER operai
+
+EXPOSE 8000
+
+CMD ["uvicorn", "edge_app.compose_api:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import tempfile
 import threading
 import unittest
@@ -36,6 +37,7 @@ from edge_app.inference import preprocess_image, sigmoid
 from edge_app.service import EdgeService
 from edge_app.sources import DirectorySource
 from edge_app.storage import PredictionStore
+from edge_app.triton_inference import TRITON_HEADER_LENGTH, TritonDinoClassifier
 
 
 def make_prediction(phase: str, confidence: float = 0.8) -> FramePrediction:
@@ -92,6 +94,28 @@ def image_data_url(color: tuple[int, int, int] = (12, 34, 56)) -> str:
     Image.new("RGB", (32, 24), color).save(buffer, format="JPEG")
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
+
+
+class FakeHttpResponse:
+    def __init__(
+        self,
+        payload: bytes = b"",
+        *,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.payload = payload
+        self.status = status
+        self.headers = headers or {}
+
+    def read(self) -> bytes:
+        return self.payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> None:
+        return None
 
 
 class DecisionTest(unittest.TestCase):
@@ -384,6 +408,78 @@ class DashboardTest(unittest.TestCase):
 
             self.assertIn("requestBody", operation)
             self.assertNotIn("parameters", operation)
+
+
+class TritonClassifierTest(unittest.TestCase):
+    def test_sends_binary_batch_and_decodes_logits(self) -> None:
+        logits = np.asarray(
+            [
+                [5.0, -5.0, -5.0, -5.0],
+                [-5.0, 5.0, 5.0, -5.0],
+            ],
+            dtype="<f4",
+        )
+        metadata = {
+            "outputs": [
+                {
+                    "name": "logits",
+                    "datatype": "FP32",
+                    "shape": [2, 4],
+                    "parameters": {"binary_data_size": logits.nbytes},
+                }
+            ]
+        }
+        response_header = json.dumps(metadata).encode("utf-8")
+        requests = []
+
+        def urlopen(request, *, timeout):
+            requests.append((request, timeout))
+            return FakeHttpResponse(
+                response_header + logits.tobytes(),
+                headers={TRITON_HEADER_LENGTH: str(len(response_header))},
+            )
+
+        classifier = TritonDinoClassifier(
+            "http://triton:8000",
+            urlopen=urlopen,
+        )
+        predictions = classifier.classify(
+            [Image.new("RGB", (32, 24)), Image.new("RGB", (32, 24))]
+        )
+
+        request, timeout = requests[0]
+        request_headers = {key.lower(): value for key, value in request.headers.items()}
+        request_header_length = int(request_headers[TRITON_HEADER_LENGTH.lower()])
+        request_metadata = json.loads(request.data[:request_header_length])
+        self.assertEqual(
+            request.full_url, "http://triton:8000/v2/models/operai_eye_dinov3/infer"
+        )
+        self.assertEqual(request_metadata["inputs"][0]["shape"], [2, 3, 224, 224])
+        self.assertEqual(timeout, 120.0)
+        self.assertEqual(
+            [prediction.phase for prediction in predictions],
+            ["IDLE", "PATIENT_IN_ROOM"],
+        )
+
+    def test_readiness_uses_model_endpoint(self) -> None:
+        requests = []
+
+        def urlopen(request, *, timeout):
+            requests.append((request, timeout))
+            return FakeHttpResponse(status=200)
+
+        classifier = TritonDinoClassifier(
+            "http://triton:8000/",
+            model_version="1",
+            urlopen=urlopen,
+        )
+
+        self.assertTrue(classifier.is_ready())
+        self.assertEqual(
+            requests[0][0].full_url,
+            "http://triton:8000/v2/models/operai_eye_dinov3/versions/1/ready",
+        )
+        self.assertEqual(requests[0][1], 5.0)
 
 
 class DirectorySourceTest(unittest.TestCase):
