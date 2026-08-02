@@ -18,6 +18,7 @@ warmup_seconds = 0.0
 path = "/models/operai_eye_dinov3/model.onnx"
 intra_op_threads = 4
 inter_op_threads = 1
+execution_provider = "cpu"
 
 [decision]
 minimum_vote_fraction = 0.6

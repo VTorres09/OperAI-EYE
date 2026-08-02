@@ -17,6 +17,23 @@ DEFAULT_MEAN = (0.485, 0.456, 0.406)
 DEFAULT_STD = (0.229, 0.224, 0.225)
 
 
+def select_execution_providers(requested: str, available: Sequence[str]) -> list[str]:
+    """Select a portable ONNX Runtime provider chain."""
+
+    available_set = set(available)
+    if requested == "cpu":
+        return ["CPUExecutionProvider"]
+    if requested == "coreml":
+        if "CoreMLExecutionProvider" not in available_set:
+            raise RuntimeError("CoreMLExecutionProvider is not available")
+        return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+    if requested != "auto":
+        raise ValueError(f"Unsupported execution provider: {requested}")
+    if "CoreMLExecutionProvider" in available_set:
+        return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+    return ["CPUExecutionProvider"]
+
+
 def _resize_short_side(image: Image.Image, size: int) -> Image.Image:
     image = image.convert("RGB")
     width, height = image.size
@@ -72,6 +89,7 @@ class DinoOnnxClassifier:
         metadata_path: Path | None = None,
         intra_op_threads: int = 4,
         inter_op_threads: int = 1,
+        execution_provider: str = "auto",
     ) -> None:
         try:
             import onnxruntime as ort
@@ -95,7 +113,9 @@ class DinoOnnxClassifier:
         self.session = ort.InferenceSession(
             str(model_path),
             sess_options=options,
-            providers=["CPUExecutionProvider"],
+            providers=select_execution_providers(
+                execution_provider, ort.get_available_providers()
+            ),
         )
         self.input_name = self.metadata.get(
             "input_name", self.session.get_inputs()[0].name

@@ -35,6 +35,7 @@ class ModelConfig:
     metadata_path: Path | None = None
     intra_op_threads: int = 4
     inter_op_threads: int = 1
+    execution_provider: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -156,6 +157,8 @@ def validate_config(config: EdgeConfig) -> None:
         raise ValueError("camera.rotation must be 0, 90, 180, or 270")
     if config.model.intra_op_threads <= 0 or config.model.inter_op_threads <= 0:
         raise ValueError("model thread counts must be positive")
+    if config.model.execution_provider not in {"auto", "cpu", "coreml"}:
+        raise ValueError("model.execution_provider must be auto, cpu, or coreml")
     if not 0 <= config.decision.minimum_phase_confidence <= 1:
         raise ValueError("decision.minimum_phase_confidence must be in [0, 1]")
     if not 0 <= config.decision.minimum_vote_fraction <= 1:

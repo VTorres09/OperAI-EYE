@@ -6,8 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY deploy/docker/backend-requirements.txt /tmp/backend-requirements.txt
-RUN pip install --no-cache-dir -r /tmp/backend-requirements.txt \
+COPY deploy/docker/app-requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --no-compile -r /tmp/requirements.txt \
     && groupadd --gid 10001 operai \
     && useradd --uid 10001 --gid operai --no-create-home operai \
     && mkdir -p /data \

@@ -188,7 +188,8 @@ Grant camera access in the browser. It displays the live feed, captures a
 five-frame burst, runs one local batch, and visualizes the per-frame predictions
 and majority vote every minute.
 
-For a container deployment with separate Triton, FastAPI, and Nginx services:
+For a compact container deployment with ONNX Runtime and the camera UI in one
+service:
 
 ```bash
 cp .env.compose.example .env

@@ -110,6 +110,7 @@ def _classifier(config: EdgeConfig) -> DinoOnnxClassifier:
         metadata_path=config.model.metadata_path,
         intra_op_threads=config.model.intra_op_threads,
         inter_op_threads=config.model.inter_op_threads,
+        execution_provider=config.model.execution_provider,
     )
 
 
