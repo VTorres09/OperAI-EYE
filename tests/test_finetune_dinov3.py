@@ -7,8 +7,7 @@ from pathlib import Path
 
 import torch
 
-from finetuning.dinov3 import evaluate_lightly
-from finetuning.dinov3 import train_lightly
+from operai_eye.training.dinov3 import evaluate_lightly, train_lightly
 
 
 class LightlyDinov3PreparationTest(unittest.TestCase):

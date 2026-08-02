@@ -1,0 +1,32 @@
+[service]
+interval_seconds = 60.0
+burst_size = 5
+capture_spacing_seconds = 1.0
+minimum_captures = 3
+run_immediately = true
+restart_after_failures = 5
+
+[camera]
+backend = "opencv"
+width = 1920
+height = 1080
+rotation = 0
+device = "0"
+warmup_seconds = 0.0
+
+[model]
+path = "/models/operai_eye_dinov3/model.onnx"
+intra_op_threads = 4
+inter_op_threads = 1
+execution_provider = "cpu"
+
+[decision]
+minimum_vote_fraction = 0.6
+minimum_phase_confidence = 0.0
+
+[storage]
+database_path = "/data/predictions.sqlite3"
+image_directory = "/data/images"
+retain_images = "none"
+retention_days = 7
+jpeg_quality = 85
