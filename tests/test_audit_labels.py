@@ -2,7 +2,7 @@
 
 import unittest
 
-from audit_labels import LabelRecord, audit_records
+from operai_eye.pipeline.audit_labels import LabelRecord, audit_records
 
 
 def record(frame_id: int, phase: str, confidence: float = 0.9) -> LabelRecord:

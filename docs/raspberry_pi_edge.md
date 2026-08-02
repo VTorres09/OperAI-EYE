@@ -6,7 +6,7 @@ the DINOv3 ONNX graph in a single batch. Each frame is mapped to an OR phase,
 then a majority vote produces the interval result.
 
 The service uses the repository's fine-tuned DINOv3 ViT-B/16 model and the same
-phase scoring as `finetuning/dinov3/evaluate_lightly.py`:
+phase scoring as `operai_eye/training/dinov3/evaluate_lightly.py`:
 
 - `IDLE = p(idle)`
 - `PATIENT_IN_ROOM = p(people_in_room) * p(surgery_inactive)`
@@ -27,7 +27,7 @@ uv run \
   --with "torchvision>=0.22,<0.23" \
   --with onnx \
   --with onnxruntime \
-  python -m edge_app.export_model --quantize
+  operai-export-model --quantize
 ```
 
 This downloads `exported_best.pt` from
@@ -45,7 +45,7 @@ uv run \
   --with "torchvision>=0.22,<0.23" \
   --with onnx \
   --with onnxruntime \
-  python -m edge_app.export_model \
+  operai-export-model \
   --checkpoint /path/to/exported_best.pt \
   --output models/operai_eye_dinov3.onnx \
   --quantize

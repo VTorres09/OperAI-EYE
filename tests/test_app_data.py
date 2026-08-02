@@ -10,11 +10,12 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from hf_dataset import HFDatasetPaths
-from hf_sft_dataset import HFSFTDatasetPaths, SFTDatasetPreparationError
-
-from app import data
-
+from operai_eye.pipeline.hf_dataset import HFDatasetPaths
+from operai_eye.pipeline.hf_sft_dataset import (
+    HFSFTDatasetPaths,
+    SFTDatasetPreparationError,
+)
+from operai_eye.web import data
 
 FIELDNAMES = [
     "path",
@@ -62,7 +63,9 @@ class ExplorerDataTest(unittest.TestCase):
             root = Path(temp)
             test_snapshot = root / "test_snapshot"
             test_labels = test_snapshot / "labels" / "test_labels.csv"
-            test_image = test_snapshot / "test/MISS/1/take_1/external_1/frame_000001.png"
+            test_image = (
+                test_snapshot / "test/MISS/1/take_1/external_1/frame_000001.png"
+            )
             test_image.parent.mkdir(parents=True)
             test_image.write_bytes(b"png")
             write_labels(test_labels, [label_row("test", "000001", "IDLE")])
@@ -103,10 +106,13 @@ class ExplorerDataTest(unittest.TestCase):
                 image_count=2,
             )
 
-            with patch.object(data, "get_hf_dataset_paths", return_value=test_paths), patch.object(
-                data,
-                "get_hf_sft_dataset_paths",
-                return_value=sft_paths,
+            with (
+                patch.object(data, "get_hf_dataset_paths", return_value=test_paths),
+                patch.object(
+                    data,
+                    "get_hf_sft_dataset_paths",
+                    return_value=sft_paths,
+                ),
             ):
                 data.reset_cache()
                 options = data.get_filter_options()
@@ -124,7 +130,10 @@ class ExplorerDataTest(unittest.TestCase):
                 "/images/train/MISS/1/take_1/external_1/frame_000002.png",
             )
             self.assertEqual(validation_stats["total"], 1)
-            self.assertEqual(train_path, split_dirs["train"] / "MISS/1/take_1/external_1/frame_000002.png")
+            self.assertEqual(
+                train_path,
+                split_dirs["train"] / "MISS/1/take_1/external_1/frame_000002.png",
+            )
 
     def test_prediction_filter_limits_explorer_to_errors(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -157,11 +166,15 @@ class ExplorerDataTest(unittest.TestCase):
                 ]
             )
 
-            with patch.object(data, "get_hf_dataset_paths", return_value=test_paths), patch.object(
-                data,
-                "get_hf_sft_dataset_paths",
-                side_effect=SFTDatasetPreparationError("no sft cache"),
-            ), patch.object(data, "get_model_predictions", return_value=predictions):
+            with (
+                patch.object(data, "get_hf_dataset_paths", return_value=test_paths),
+                patch.object(
+                    data,
+                    "get_hf_sft_dataset_paths",
+                    side_effect=SFTDatasetPreparationError("no sft cache"),
+                ),
+                patch.object(data, "get_model_predictions", return_value=predictions),
+            ):
                 data.reset_cache()
                 incorrect = data.get_images(model_id="model", prediction="incorrect")
                 correct_stats = data.get_stats(model_id="model", prediction="correct")
