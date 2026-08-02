@@ -12,7 +12,7 @@ from typing import Any
 from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 
-ROOT = Path(__file__).resolve().parent
+from operai_eye.paths import PROJECT_ROOT
 
 HF_DATASET_REPO_ID = "OperAI-Research/operai-eye-exocentric-rgb-test"
 HF_DATASET_REVISION = "b363f3b89449b9d3367e19719178e1199d0b324d"
@@ -82,7 +82,9 @@ def validate_labeled_images(
             f"PNG paths: {labels_path}"
         )
 
-    missing_paths = [path for path in image_paths if not (snapshot_path / path).is_file()]
+    missing_paths = [
+        path for path in image_paths if not (snapshot_path / path).is_file()
+    ]
     if missing_paths:
         preview = ", ".join(str(path) for path in missing_paths[:3])
         raise DatasetPreparationError(
@@ -94,7 +96,7 @@ def validate_labeled_images(
 
 
 def _token() -> str | bool:
-    load_dotenv(ROOT / ".env")
+    load_dotenv(PROJECT_ROOT / ".env")
     return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN") or True
 
 

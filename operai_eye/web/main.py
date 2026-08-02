@@ -7,7 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from hf_dataset import DatasetPreparationError, dataset_status, prepare_hf_dataset
+from operai_eye.paths import STATIC_DIR
+from operai_eye.pipeline.hf_dataset import (
+    DatasetPreparationError,
+    dataset_status,
+    prepare_hf_dataset,
+)
 
 from .audit_data import (
     audit_filter_options,
@@ -32,8 +37,6 @@ try:
     from pydantic import BaseModel
 except ImportError:  # pragma: no cover
     BaseModel = object
-
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 app = FastAPI()
 
@@ -61,9 +64,13 @@ class AuditCorrectionRequest(BaseModel):
     reviewed: bool = True
 
 
-def _set_dataset_download_state(state: str, message: str = "", error: str | None = None) -> None:
+def _set_dataset_download_state(
+    state: str, message: str = "", error: str | None = None
+) -> None:
     with _dataset_download_lock:
-        _dataset_download_state.update({"state": state, "message": message, "error": error})
+        _dataset_download_state.update(
+            {"state": state, "message": message, "error": error}
+        )
 
 
 def _get_dataset_download_state() -> dict:
@@ -329,7 +336,9 @@ def eval_register(
 
 
 if STATIC_DIR.is_dir():
-    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
+    app.mount(
+        "/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets"
+    )
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):

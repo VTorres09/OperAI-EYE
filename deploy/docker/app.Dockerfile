@@ -13,11 +13,11 @@ RUN pip install --no-cache-dir --no-compile -r /tmp/requirements.txt \
     && mkdir -p /data \
     && chown operai:operai /data
 
-COPY --chown=operai:operai edge_app /app/edge_app
+COPY --chown=operai:operai operai_eye /app/operai_eye
 COPY --chown=operai:operai deploy/docker/config.toml /app/config.toml
 
 USER operai
 
 EXPOSE 8000
 
-CMD ["uvicorn", "edge_app.compose_api:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+CMD ["uvicorn", "operai_eye.edge.compose_api:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

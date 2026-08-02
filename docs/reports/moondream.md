@@ -174,7 +174,7 @@ excluding `UNKNOWN`, so their `IDLE` F1 is `0.0000` by definition.
 Moondream-specific code and reporting now live under:
 
 ```text
-finetuning/moondream/
+operai_eye/training/moondream/
 ├── __init__.py
 ├── finetune_moondream.py
 └── REPORT.md
@@ -183,7 +183,7 @@ finetuning/moondream/
 Run the Moondream SFT entry point from the repository root:
 
 ```bash
-uv run python -m finetuning.moondream.finetune_moondream
+uv run operai-train-moondream
 ```
 
 For the completed 10k experiment, the persisted state and final results are:
@@ -198,7 +198,7 @@ The default command still writes to `output/moondream_sft_state.json` and
 a new experiment so completed runs remain immutable:
 
 ```bash
-uv run python -m finetuning.moondream.finetune_moondream \
+uv run operai-train-moondream \
   --name operai-eye-or-phase-kimi-sft-next \
   --state output/moondream_sft_next_state.json \
   --results output/moondream_sft_next_results.json
@@ -207,7 +207,7 @@ uv run python -m finetuning.moondream.finetune_moondream \
 ## Notes for Future Model Experiments
 
 - Reuse the pinned Hugging Face ImageFolder dataset for comparable experiments.
-- Keep model-specific runners under `finetuning/<model_family>/`.
+- Keep model-specific runners under `operai_eye/training/<model_family>/`.
 - Save each run's state and metrics with a model-specific filename under
   `output/`.
 - If comparing directly against the 1k Moondream run, re-evaluate the old

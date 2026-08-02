@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-import prepare_sft_dataset as prepare
+from operai_eye.pipeline import prepare_sft_dataset as prepare
 
 
 def make_path(split: str, index: int, camera: str = "external_1") -> Path:
@@ -64,8 +64,7 @@ class AdaptiveAnalysisTest(unittest.TestCase):
             for index in range(3_000)
         ]
         sample = [
-            make_path("validation", index, "external_1")
-            for index in range(2_000)
+            make_path("validation", index, "external_1") for index in range(2_000)
         ] + full[2_000:]
         labels = make_labels(sample[:2_000], list(prepare.CORE_PHASES))
 
@@ -133,12 +132,13 @@ class StageTest(unittest.TestCase):
             def fake_labels(path: Path):
                 return labels_by_split[path.stem.replace("_labels", "")]
 
-            with patch.object(prepare, "DATA_DIR", data_dir), patch.object(
-                prepare, "OUTPUT_DIR", output_dir
-            ), patch.object(
-                prepare, "sampled_paths", side_effect=fake_sampled
-            ), patch.object(
-                prepare, "read_successful_labels", side_effect=fake_labels
+            with (
+                patch.object(prepare, "DATA_DIR", data_dir),
+                patch.object(prepare, "OUTPUT_DIR", output_dir),
+                patch.object(prepare, "sampled_paths", side_effect=fake_sampled),
+                patch.object(
+                    prepare, "read_successful_labels", side_effect=fake_labels
+                ),
             ):
                 result = prepare.stage_dataset(
                     analysis_path,
@@ -214,12 +214,13 @@ class StageTest(unittest.TestCase):
             def fake_labels(path: Path):
                 return labels_by_split[path.stem.replace("_labels", "")]
 
-            with patch.object(prepare, "DATA_DIR", data_dir), patch.object(
-                prepare, "OUTPUT_DIR", output_dir
-            ), patch.object(
-                prepare, "sampled_paths", side_effect=fake_sampled
-            ), patch.object(
-                prepare, "read_successful_labels", side_effect=fake_labels
+            with (
+                patch.object(prepare, "DATA_DIR", data_dir),
+                patch.object(prepare, "OUTPUT_DIR", output_dir),
+                patch.object(prepare, "sampled_paths", side_effect=fake_sampled),
+                patch.object(
+                    prepare, "read_successful_labels", side_effect=fake_labels
+                ),
             ):
                 result = prepare.stage_dataset(
                     analysis_path,
@@ -236,11 +237,7 @@ class StageTest(unittest.TestCase):
             with zipfile.ZipFile(stage_dir / "train.zip") as archive:
                 self.assertIn("metadata.csv", archive.namelist())
                 self.assertEqual(
-                    [
-                        name
-                        for name in archive.namelist()
-                        if name.endswith(".png")
-                    ],
+                    [name for name in archive.namelist() if name.endswith(".png")],
                     ["MISS/1/take_1/external_1/frame_000001.png"],
                 )
 

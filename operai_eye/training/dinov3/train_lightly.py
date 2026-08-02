@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare and launch LightlyTrain DINOv3 multilabel image classification."""
 
 from __future__ import annotations
@@ -11,15 +10,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from hf_sft_dataset import (
+from operai_eye.pipeline.hf_sft_dataset import (
     DEFAULT_WORK_DIR as DEFAULT_HF_SFT_WORK_DIR,
+)
+from operai_eye.pipeline.hf_sft_dataset import (
     get_hf_sft_dataset_paths,
     prepare_hf_sft_dataset,
     read_csv_rows,
     resolve_revision,
 )
-from label_data import DATA_DIR, OUTPUT_DIR
-from prepare_sft_dataset import DEFAULT_REPO_ID, DEFAULT_REVISION_PATH
+from operai_eye.pipeline.label_data import DATA_DIR, OUTPUT_DIR
+from operai_eye.pipeline.prepare_sft_dataset import (
+    DEFAULT_REPO_ID,
+    DEFAULT_REVISION_PATH,
+)
 
 DEFAULT_WORK_DIR = OUTPUT_DIR / "lightly_dinov3"
 DEFAULT_OUT_DIR = DEFAULT_WORK_DIR / "runs" / "dinov3_vitb16_multilabel"
@@ -69,7 +73,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sft-work-dir", type=Path, default=DEFAULT_HF_SFT_WORK_DIR)
     parser.add_argument("--dataset-local-files-only", action="store_true")
     parser.add_argument("--dataset-max-workers", type=int, default=8)
-    parser.add_argument("--train-labels", type=Path, default=OUTPUT_DIR / "train_labels.csv")
+    parser.add_argument(
+        "--train-labels", type=Path, default=OUTPUT_DIR / "train_labels.csv"
+    )
     parser.add_argument(
         "--validation-labels",
         type=Path,
@@ -329,7 +335,7 @@ def train(args: argparse.Namespace, manifest: dict[str, Any]) -> None:
         raise SystemExit(
             "lightly_train is not installed. Run with "
             "`uv run --with lightly-train python -m "
-            "finetuning.dinov3.train_lightly train ...` or add lightly-train "
+            "operai_eye.training.dinov3.train_lightly train ...` or add lightly-train "
             "to your environment."
         ) from exc
 

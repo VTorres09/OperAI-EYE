@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Label surgical OR images using OpenAI-compatible API with async concurrency.
 
 Usage:
@@ -25,8 +24,11 @@ from typing import Any
 from openai import AsyncOpenAI
 from tqdm.asyncio import tqdm
 
+from operai_eye.paths import DATA_DIR, OUTPUT_DIR, PROMPTS_DIR
+
 try:
     from dotenv import load_dotenv
+
     load_dotenv(override=True)
 except ImportError:
     pass
@@ -38,9 +40,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROMPT_PATH = Path("prompts/or_phase.txt")
-DATA_DIR = Path("data/exocentric_rgb")
-OUTPUT_DIR = Path("output")
+DEFAULT_PROMPT_PATH = PROMPTS_DIR / "or_phase.txt"
 VALID_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
 FIELDNAMES = [
     "path",
@@ -58,15 +58,35 @@ FIELDNAMES = [
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Label OR images using async API calls.")
-    parser.add_argument("--split", choices=["train", "validation", "test"], required=True, help="Split to label")
-    parser.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT_PATH, help="Prompt file path")
-    parser.add_argument("--model", default=os.getenv("MODEL_NAME", "gemini-2.0-flash"), help="Model name")
-    parser.add_argument("--concurrency", type=int, default=10, help="Number of concurrent requests")
+    parser = argparse.ArgumentParser(
+        description="Label OR images using async API calls."
+    )
+    parser.add_argument(
+        "--split",
+        choices=["train", "validation", "test"],
+        required=True,
+        help="Split to label",
+    )
+    parser.add_argument(
+        "--prompt", type=Path, default=DEFAULT_PROMPT_PATH, help="Prompt file path"
+    )
+    parser.add_argument(
+        "--model",
+        default=os.getenv("MODEL_NAME", "gemini-2.0-flash"),
+        help="Model name",
+    )
+    parser.add_argument(
+        "--concurrency", type=int, default=10, help="Number of concurrent requests"
+    )
     parser.add_argument("--limit", type=int, help="Limit number of images to process")
     parser.add_argument("--seed", type=int, default=42, help="Random sampling seed")
-    parser.add_argument("--dry-run", action="store_true", help="List images without submitting")
-    parser.add_argument("--rephase", help="Force re-labeling of images currently labeled with this phase (e.g. TURNOVER)")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="List images without submitting"
+    )
+    parser.add_argument(
+        "--rephase",
+        help="Force re-labeling of images currently labeled with this phase (e.g. TURNOVER)",
+    )
     return parser.parse_args()
 
 
@@ -83,9 +103,15 @@ def get_client() -> AsyncOpenAI:
             logger.error("MOONSHOT_API_KEY required when using Moonshot base URL")
             sys.exit(1)
     else:
-        api_key = os.getenv("OPENAI_API_KEY") or os.getenv("MOONSHOT_API_KEY") or os.getenv("GEMINI_API_KEY")
+        api_key = (
+            os.getenv("OPENAI_API_KEY")
+            or os.getenv("MOONSHOT_API_KEY")
+            or os.getenv("GEMINI_API_KEY")
+        )
         if not api_key:
-            logger.error("Set OPENAI_API_KEY, MOONSHOT_API_KEY, or GEMINI_API_KEY environment variable")
+            logger.error(
+                "Set OPENAI_API_KEY, MOONSHOT_API_KEY, or GEMINI_API_KEY environment variable"
+            )
             sys.exit(1)
     kwargs: dict[str, Any] = {"api_key": api_key}
     if base_url:
@@ -186,6 +212,7 @@ def parse_response(content: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
     import re
+
     phase_match = re.search(r'"phase"\s*:\s*"([^"]+)"', content)
     conf_match = re.search(r'"confidence"\s*:\s*([\d.]+)', content)
     cues_match = re.search(r'"key_visual_cues"\s*:\s*\[([^\]]*)\]', content)
@@ -222,7 +249,9 @@ async def label_image(
                                 {"type": "text", "text": prompt},
                                 {
                                     "type": "image_url",
-                                    "image_url": {"url": f"data:image/png;base64,{b64}"},
+                                    "image_url": {
+                                        "url": f"data:image/png;base64,{b64}"
+                                    },
                                 },
                             ],
                         }
@@ -245,14 +274,33 @@ async def label_image(
                 }
             except Exception as e:
                 error_str = str(e).lower()
-                is_rate_limit = "429" in str(e) or "rate" in error_str or "quota" in error_str
-                is_server_error = "500" in str(e) or "502" in str(e) or "503" in str(e) or "504" in str(e)
+                is_rate_limit = (
+                    "429" in str(e) or "rate" in error_str or "quota" in error_str
+                )
+                is_server_error = (
+                    "500" in str(e)
+                    or "502" in str(e)
+                    or "503" in str(e)
+                    or "504" in str(e)
+                )
                 if (is_rate_limit or is_server_error) and attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) * 5
-                    logger.warning("Rate limit/server error for %s, retry %d/%d in %ds: %s", rel_path, attempt + 1, max_retries, wait_time, e)
+                    wait_time = (2**attempt) * 5
+                    logger.warning(
+                        "Rate limit/server error for %s, retry %d/%d in %ds: %s",
+                        rel_path,
+                        attempt + 1,
+                        max_retries,
+                        wait_time,
+                        e,
+                    )
                     await asyncio.sleep(wait_time)
                 else:
-                    logger.warning("Error processing %s after %d attempts: %s", rel_path, attempt + 1, e)
+                    logger.warning(
+                        "Error processing %s after %d attempts: %s",
+                        rel_path,
+                        attempt + 1,
+                        e,
+                    )
                     return {
                         "path": rel_path,
                         **meta,
@@ -340,23 +388,30 @@ async def main_async() -> int:
         output_csv = OUTPUT_DIR / f"{args.split}_labels.csv"
         phase_map = load_phase_map(output_csv)
         to_process = [
-            img for img in all_images
+            img
+            for img in all_images
             if str(img.relative_to(DATA_DIR)) in phase_map
             and phase_map.get(str(img.relative_to(DATA_DIR))) == args.rephase
         ]
         if args.limit:
-            to_process = to_process[:args.limit]
+            to_process = to_process[: args.limit]
         existing = load_existing_labels(output_csv)
-        logger.info("Re-labeling %d images with phase %s", len(to_process), args.rephase)
+        logger.info(
+            "Re-labeling %d images with phase %s", len(to_process), args.rephase
+        )
     else:
         images = discover_images(args.split, args.limit, args.seed)
         output_csv = OUTPUT_DIR / f"{args.split}_labels.csv"
         existing = load_existing_labels(output_csv)
-        to_process = [img for img in images if str(img.relative_to(DATA_DIR)) not in existing]
+        to_process = [
+            img for img in images if str(img.relative_to(DATA_DIR)) not in existing
+        ]
     if not to_process:
         logger.info("No images to process")
         return 0
-    logger.info("Processing %d images (%d already labeled)", len(to_process), len(existing))
+    logger.info(
+        "Processing %d images (%d already labeled)", len(to_process), len(existing)
+    )
     if args.dry_run:
         logger.info("Dry run: would process %d images", len(to_process))
         return 0
@@ -374,7 +429,11 @@ async def main_async() -> int:
     logger.info("LABELING COMPLETE")
     logger.info("=" * 50)
     logger.info("Success: %d | Errors: %d", success, errors)
-    logger.info("Time: %.1fs (%.2f images/sec)", elapsed, success / elapsed if elapsed > 0 else 0)
+    logger.info(
+        "Time: %.1fs (%.2f images/sec)",
+        elapsed,
+        success / elapsed if elapsed > 0 else 0,
+    )
     logger.info("Output: %s", output_csv)
     return 0 if errors == 0 else 1
 

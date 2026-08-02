@@ -4,12 +4,11 @@ from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, Optional
 
-from audit_labels import LabelRecord, audit_records
-from hf_sft_dataset import (
+from operai_eye.pipeline.audit_labels import LabelRecord, audit_records
+from operai_eye.pipeline.hf_sft_dataset import (
     CORE_PHASE_SET,
     DEFAULT_CORRECTED_STAGE_DIR,
     DEFAULT_CORRECTIONS_PATH,
-    DEFAULT_WORK_DIR,
     HFSFTDatasetPaths,
     SFTDatasetPreparationError,
     apply_corrections_to_rows,
@@ -23,7 +22,10 @@ from hf_sft_dataset import (
     read_label_rows,
     upsert_correction,
 )
-from prepare_sft_dataset import DEFAULT_REPO_ID, DEFAULT_REVISION_PATH
+from operai_eye.pipeline.prepare_sft_dataset import (
+    DEFAULT_REPO_ID,
+    DEFAULT_REVISION_PATH,
+)
 
 _audit_prepare_lock = Lock()
 _audit_prepare_state = {"state": "idle", "message": "", "error": None}
@@ -41,7 +43,9 @@ _candidate_cache: dict[str, Any] = {}
 
 def _set_prepare_state(state: str, message: str = "", error: str | None = None) -> None:
     with _audit_prepare_lock:
-        _audit_prepare_state.update({"state": state, "message": message, "error": error})
+        _audit_prepare_state.update(
+            {"state": state, "message": message, "error": error}
+        )
 
 
 def _get_prepare_state() -> dict[str, Any]:

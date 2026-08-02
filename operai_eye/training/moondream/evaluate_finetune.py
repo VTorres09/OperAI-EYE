@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Evaluate a Moondream Cloud fine-tune on the private test split."""
 
 from __future__ import annotations
@@ -7,7 +6,6 @@ import argparse
 import csv
 import json
 import os
-import sys
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,16 +16,12 @@ from dotenv import load_dotenv
 from PIL import Image
 from tqdm import tqdm
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from operai_eye.paths import OUTPUT_DIR, PROJECT_ROOT
+from operai_eye.pipeline.hf_dataset import get_hf_dataset_paths
+from operai_eye.pipeline.prepare_sft_dataset import CORE_PHASES, QUESTION
+from operai_eye.training.moondream.finetune_moondream import parse_phase
+from operai_eye.web.eval_data import register_model
 
-from app.eval_data import register_model  # noqa: E402
-from hf_dataset import get_hf_dataset_paths  # noqa: E402
-from prepare_sft_dataset import CORE_PHASES, QUESTION  # noqa: E402
-from finetuning.moondream.finetune_moondream import parse_phase  # noqa: E402
-
-OUTPUT_DIR = PROJECT_ROOT / "output"
 DEFAULT_MODEL = "moondream3-preview/01KV38VJ6DYECNHFCFSK2B96SN@3751"
 EVALUATION_PHASES = set(CORE_PHASES)
 
@@ -97,7 +91,9 @@ def compute_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         tp, fp, fn = stats["tp"], stats["fp"], stats["fn"]
         precision = tp / (tp + fp) if tp + fp else 0.0
         recall = tp / (tp + fn) if tp + fn else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        )
         per_class[phase] = {
             "total": stats["total"],
             "correct": tp,
@@ -162,7 +158,9 @@ def main() -> int:
         raise RuntimeError("MOONDREAM_API_KEY is required")
 
     output_path = args.output or OUTPUT_DIR / f"eval_results_{args.model_id}.csv"
-    metrics_path = args.metrics_output or OUTPUT_DIR / f"eval_metrics_{args.model_id}.json"
+    metrics_path = (
+        args.metrics_output or OUTPUT_DIR / f"eval_metrics_{args.model_id}.json"
+    )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     dataset = get_hf_dataset_paths(
@@ -200,7 +198,9 @@ def main() -> int:
                 )
                 for row in rows
             ]
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Evaluating Moondream"):
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="Evaluating Moondream"
+            ):
                 writer.writerow(future.result())
                 handle.flush()
 

@@ -3,14 +3,17 @@ from typing import Optional
 
 import pandas as pd
 
-from hf_dataset import DatasetPreparationError, get_hf_dataset_paths
-from hf_sft_dataset import (
+from operai_eye.paths import OUTPUT_DIR
+from operai_eye.pipeline.hf_dataset import (
+    DatasetPreparationError,
+    get_hf_dataset_paths,
+)
+from operai_eye.pipeline.hf_sft_dataset import (
     SFTDatasetPreparationError,
     get_hf_sft_dataset_paths,
     image_path_for_source,
 )
 
-OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 LABEL_COLUMNS = [
     "path",
     "split",
@@ -61,8 +64,7 @@ def get_df() -> pd.DataFrame:
             split_df["split"] = split
             split_df = split_df[
                 split_df["path"].map(
-                    lambda path: image_path_for_source(sft_paths, str(path))
-                    is not None
+                    lambda path: image_path_for_source(sft_paths, str(path)) is not None
                 )
             ]
             sft_frames.append(split_df)
@@ -148,6 +150,7 @@ def get_filter_options() -> dict:
 
 def get_model_predictions(model_id: str) -> Optional[pd.DataFrame]:
     from .eval_data import get_metadata
+
     metadata = get_metadata()
     if model_id not in metadata.get("models", {}):
         return None
@@ -179,7 +182,11 @@ def get_stats(
     def counts(col: str) -> list[dict]:
         vc = filtered[col].value_counts()
         return [
-            {"label": str(k), "count": int(v), "pct": round(int(v) / total * 100, 1) if total else 0}
+            {
+                "label": str(k),
+                "count": int(v),
+                "pct": round(int(v) / total * 100, 1) if total else 0,
+            }
             for k, v in vc.items()
         ]
 
@@ -225,25 +232,35 @@ def get_images(
     for _, row in page_df.iterrows():
         path = str(row["path"])
         model_predicted = pred_map.get(path)
-        items.append({
-            "path": path,
-            "image_url": f"/images/{path}",
-            "split": str(row["split"]) if pd.notna(row["split"]) else None,
-            "surgery_type": str(row["surgery_type"]) if pd.notna(row["surgery_type"]) else None,
-            "procedure_id": int(row["procedure_id"]) if pd.notna(row["procedure_id"]) else None,
-            "take_id": int(row["take_id"]) if pd.notna(row["take_id"]) else None,
-            "camera": str(row["camera"]) if pd.notna(row["camera"]) else None,
-            "frame_id": str(row["frame_id"]),
-            "phase": str(row["phase"]) if pd.notna(row["phase"]) else None,
-            "confidence": float(row["confidence"]) if pd.notna(row["confidence"]) else None,
-            "key_visual_cues": str(row["key_visual_cues"]) if pd.notna(row.get("key_visual_cues")) else "",
-            "model_predicted": model_predicted,
-            "model_correct": (
-                model_predicted == str(row["phase"])
-                if model_predicted is not None and pd.notna(row["phase"])
-                else None
-            ),
-        })
+        items.append(
+            {
+                "path": path,
+                "image_url": f"/images/{path}",
+                "split": str(row["split"]) if pd.notna(row["split"]) else None,
+                "surgery_type": str(row["surgery_type"])
+                if pd.notna(row["surgery_type"])
+                else None,
+                "procedure_id": int(row["procedure_id"])
+                if pd.notna(row["procedure_id"])
+                else None,
+                "take_id": int(row["take_id"]) if pd.notna(row["take_id"]) else None,
+                "camera": str(row["camera"]) if pd.notna(row["camera"]) else None,
+                "frame_id": str(row["frame_id"]),
+                "phase": str(row["phase"]) if pd.notna(row["phase"]) else None,
+                "confidence": float(row["confidence"])
+                if pd.notna(row["confidence"])
+                else None,
+                "key_visual_cues": str(row["key_visual_cues"])
+                if pd.notna(row.get("key_visual_cues"))
+                else "",
+                "model_predicted": model_predicted,
+                "model_correct": (
+                    model_predicted == str(row["phase"])
+                    if model_predicted is not None and pd.notna(row["phase"])
+                    else None
+                ),
+            }
+        )
 
     return {
         "items": items,

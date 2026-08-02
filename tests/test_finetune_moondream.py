@@ -1,14 +1,14 @@
 """Tests for Moondream SFT request shaping, metrics, and resume behavior."""
 
-import unittest
 import csv
 import tempfile
+import unittest
 from pathlib import Path
 
 from PIL import Image
 
-from finetuning.moondream import evaluate_finetune
-from finetuning.moondream import finetune_moondream as finetune
+from operai_eye.training.moondream import evaluate_finetune
+from operai_eye.training.moondream import finetune_moondream as finetune
 
 
 def example(phase: str) -> dict:

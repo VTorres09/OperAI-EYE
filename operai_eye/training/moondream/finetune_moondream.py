@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run resumable Moondream supervised fine-tuning for OR phase classification."""
 
 from __future__ import annotations
@@ -8,7 +7,6 @@ import json
 import os
 import random
 import re
-import sys
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -17,11 +15,8 @@ from typing import Any, Callable, Iterable, Sequence
 
 from dotenv import load_dotenv
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from prepare_sft_dataset import (  # noqa: E402
+from operai_eye.paths import OUTPUT_DIR
+from operai_eye.pipeline.prepare_sft_dataset import (
     CORE_PHASES,
     DEFAULT_REPO_ID,
     DEFAULT_REVISION_PATH,
@@ -29,8 +24,8 @@ from prepare_sft_dataset import (  # noqa: E402
     VALID_PHASES,
 )
 
-DEFAULT_STATE_PATH = Path("output/moondream_sft_state.json")
-DEFAULT_RESULTS_PATH = Path("output/moondream_sft_results.json")
+DEFAULT_STATE_PATH = OUTPUT_DIR / "moondream_sft_state.json"
+DEFAULT_RESULTS_PATH = OUTPUT_DIR / "moondream_sft_results.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -77,7 +72,9 @@ def compute_metrics(
     if len(ground_truth) != len(predictions):
         raise ValueError("Ground truth and prediction lengths differ")
     total = len(ground_truth)
-    correct = sum(expected == predicted for expected, predicted in zip(ground_truth, predictions))
+    correct = sum(
+        expected == predicted for expected, predicted in zip(ground_truth, predictions)
+    )
     per_class = {}
     for phase in sorted(VALID_PHASES):
         tp = sum(
@@ -96,9 +93,7 @@ def compute_metrics(
         precision = tp / (tp + fp) if tp + fp else 0.0
         recall = tp / (tp + fn) if tp + fn else 0.0
         f1 = (
-            2 * precision * recall / (precision + recall)
-            if precision + recall
-            else 0.0
+            2 * precision * recall / (precision + recall) if precision + recall else 0.0
         )
         per_class[phase] = {
             "support": support,
@@ -138,7 +133,9 @@ def epoch_order(length: int, epoch: int, seed: int) -> list[int]:
     return indices
 
 
-def iter_batches(values: Sequence[int], batch_size: int) -> Iterable[tuple[int, Sequence[int]]]:
+def iter_batches(
+    values: Sequence[int], batch_size: int
+) -> Iterable[tuple[int, Sequence[int]]]:
     for offset in range(0, len(values), batch_size):
         yield offset // batch_size, values[offset : offset + batch_size]
 
@@ -355,9 +352,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     for epoch in range(state["next_epoch"], args.epochs):
         start_batch = state["next_batch"] if epoch == state["next_epoch"] else 0
-        accumulated_losses = (
-            list(state.get("epoch_losses", [])) if start_batch else []
-        )
+        accumulated_losses = list(state.get("epoch_losses", [])) if start_batch else []
 
         def record_progress(next_batch: int, step: dict[str, Any]) -> None:
             loss = step.get("sft_loss")
@@ -394,11 +389,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             **metrics,
         }
         state["metrics"].append(epoch_record)
-        state["checkpoints"].append({
-            **checkpoint,
-            "model_id": model_id,
-            "epoch": epoch,
-        })
+        state["checkpoints"].append(
+            {
+                **checkpoint,
+                "model_id": model_id,
+                "epoch": epoch,
+            }
+        )
 
         best_score, improved, stop = early_stopping_update(
             float(state["best_core_macro_f1"]),

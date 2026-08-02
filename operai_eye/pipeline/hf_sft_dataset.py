@@ -18,10 +18,13 @@ from typing import Any, Iterable
 from dotenv import load_dotenv
 from huggingface_hub import HfApi, snapshot_download
 
-from prepare_sft_dataset import CORE_PHASES, DEFAULT_REPO_ID, DEFAULT_REVISION_PATH
+from operai_eye.paths import OUTPUT_DIR, PROJECT_ROOT
+from operai_eye.pipeline.prepare_sft_dataset import (
+    CORE_PHASES,
+    DEFAULT_REPO_ID,
+    DEFAULT_REVISION_PATH,
+)
 
-ROOT = Path(__file__).resolve().parent
-OUTPUT_DIR = ROOT / "output"
 DEFAULT_WORK_DIR = OUTPUT_DIR / "hf_sft_dataset"
 DEFAULT_CORRECTIONS_PATH = OUTPUT_DIR / "sft_label_corrections.csv"
 DEFAULT_CORRECTED_STAGE_DIR = OUTPUT_DIR / "sft_dataset_corrected"
@@ -55,7 +58,7 @@ class HFSFTDatasetPaths:
 
 
 def _token() -> str | bool:
-    load_dotenv(ROOT / ".env")
+    load_dotenv(PROJECT_ROOT / ".env")
     return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN") or True
 
 
@@ -135,8 +138,7 @@ def get_hf_sft_dataset_paths(
     _extract_archives(snapshot_path, extracted_dir)
 
     labels_paths = {
-        split: snapshot_path / "labels" / f"{split}_labels.csv"
-        for split in SFT_SPLITS
+        split: snapshot_path / "labels" / f"{split}_labels.csv" for split in SFT_SPLITS
     }
     split_dirs = {split: extracted_dir / split for split in SFT_SPLITS}
     missing = [
@@ -242,11 +244,7 @@ def read_corrections(
     if not corrections_path.exists():
         return {}
     with corrections_path.open(newline="", encoding="utf-8") as handle:
-        return {
-            row["path"]: row
-            for row in csv.DictReader(handle)
-            if row.get("path")
-        }
+        return {row["path"]: row for row in csv.DictReader(handle) if row.get("path")}
 
 
 def write_corrections(

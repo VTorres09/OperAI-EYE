@@ -24,7 +24,7 @@ uv run \
   --with "torchvision>=0.22,<0.23" \
   --with onnx \
   --with onnxruntime \
-  python -m edge_app.export_model
+  operai-export-model
 ```
 
 The model is not copied into the image. Compose mounts it read-only when the

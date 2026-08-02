@@ -15,27 +15,31 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from edge_app.config import (
+from operai_eye.edge.config import (
     DecisionConfig,
     EdgeConfig,
     ServiceConfig,
     StorageConfig,
     load_config,
 )
-from edge_app.dashboard import (
+from operai_eye.edge.dashboard import (
     DashboardRuntime,
     _decode_browser_image,
     create_dashboard_app,
 )
-from edge_app.decision import (
+from operai_eye.edge.decision import (
     FramePrediction,
     majority_vote,
     prediction_from_probabilities,
 )
-from edge_app.inference import preprocess_image, select_execution_providers, sigmoid
-from edge_app.service import EdgeService
-from edge_app.sources import DirectorySource
-from edge_app.storage import PredictionStore
+from operai_eye.edge.inference import (
+    preprocess_image,
+    select_execution_providers,
+    sigmoid,
+)
+from operai_eye.edge.service import EdgeService
+from operai_eye.edge.sources import DirectorySource
+from operai_eye.edge.storage import PredictionStore
 
 
 def make_prediction(phase: str, confidence: float = 0.8) -> FramePrediction:
@@ -431,7 +435,7 @@ class OpenCvSourceTest(unittest.TestCase):
     def test_macos_camera_uses_avfoundation_and_reports_permission_help(self) -> None:
         from unittest.mock import MagicMock, patch
 
-        from edge_app.sources import OpenCvSource
+        from operai_eye.edge.sources import OpenCvSource
 
         capture = MagicMock()
         capture.isOpened.return_value = False
@@ -441,7 +445,7 @@ class OpenCvSourceTest(unittest.TestCase):
 
         with ExitStack() as stack:
             stack.enter_context(patch.dict("sys.modules", {"cv2": fake_cv2}))
-            stack.enter_context(patch("edge_app.sources.sys.platform", "darwin"))
+            stack.enter_context(patch("operai_eye.edge.sources.sys.platform", "darwin"))
             with self.assertRaisesRegex(RuntimeError, "Privacy & Security > Camera"):
                 source.start()
 

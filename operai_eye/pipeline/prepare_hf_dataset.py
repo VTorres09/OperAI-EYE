@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare the private OperAI-EYE test dataset from the Hugging Face cache."""
 
 from __future__ import annotations
@@ -7,7 +6,7 @@ import argparse
 import json
 import sys
 
-from hf_dataset import (
+from operai_eye.pipeline.hf_dataset import (
     HF_DATASET_REPO_ID,
     HF_DATASET_REVISION,
     DatasetPreparationError,
@@ -21,7 +20,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--revision", default=HF_DATASET_REVISION)
     parser.add_argument("--max-workers", type=int, default=8)
     parser.add_argument("--local-files-only", action="store_true")
-    parser.add_argument("--json", action="store_true", help="Print machine-readable status JSON")
+    parser.add_argument(
+        "--json", action="store_true", help="Print machine-readable status JSON"
+    )
     return parser.parse_args()
 
 

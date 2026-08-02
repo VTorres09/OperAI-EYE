@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Download EgoExOR (legacy) from HuggingFace and extract exocentric RGB images
 organized by train/validation/test splits.
 

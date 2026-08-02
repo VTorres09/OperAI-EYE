@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Audit frame labels for temporal and confidence inconsistencies."""
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from typing import Any, Iterable
 
 from PIL import Image
 
-from label_data import DATA_DIR, OUTPUT_DIR, VALID_PHASES
+from operai_eye.pipeline.label_data import DATA_DIR, OUTPUT_DIR, VALID_PHASES
 
 CORE_PHASES = ("IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE")
 CORE_PHASE_SET = set(CORE_PHASES)
@@ -240,7 +239,9 @@ def visual_disagreement(
     neighbor_path = data_dir / neighbor.path
     if not current_path.exists() or not neighbor_path.exists():
         return False
-    distance = hamming(average_hash(str(current_path)), average_hash(str(neighbor_path)))
+    distance = hamming(
+        average_hash(str(current_path)), average_hash(str(neighbor_path))
+    )
     return distance <= hash_distance
 
 

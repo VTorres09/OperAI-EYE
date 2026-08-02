@@ -1,14 +1,13 @@
-#!/usr/bin/env python3
 import argparse
 import subprocess
 import sys
-from pathlib import Path
 
-from hf_dataset import DatasetPreparationError, dataset_status, prepare_hf_dataset
-
-ROOT = Path(__file__).resolve().parent
-FRONTEND_DIR = ROOT / "frontend"
-STATIC_DIR = ROOT / "static"
+from operai_eye.paths import FRONTEND_DIR, PROJECT_ROOT, STATIC_DIR
+from operai_eye.pipeline.hf_dataset import (
+    DatasetPreparationError,
+    dataset_status,
+    prepare_hf_dataset,
+)
 
 
 def build_frontend():
@@ -21,7 +20,7 @@ def build_frontend():
     print(f"Frontend built to {STATIC_DIR}")
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
@@ -45,7 +44,7 @@ def main():
             status = prepare_hf_dataset()
         except DatasetPreparationError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
-            sys.exit(1)
+            return 1
         print(f"Dataset ready: {status['image_count']} images")
     elif status["ready"]:
         print(f"Dataset already ready: {status['image_count']} images")
@@ -54,21 +53,30 @@ def main():
         build_frontend()
 
     if not STATIC_DIR.is_dir():
-        print("ERROR: static/ not found. Run without --skip-build first.", file=sys.stderr)
-        sys.exit(1)
+        print(
+            "ERROR: static/ not found. Run without --skip-build first.", file=sys.stderr
+        )
+        return 1
 
     cmd = [
-        sys.executable, "-m", "uvicorn",
-        "app.main:app",
-        "--host", args.host,
-        "--port", str(args.port),
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "operai_eye.web.main:app",
+        "--host",
+        args.host,
+        "--port",
+        str(args.port),
     ]
     if args.reload:
         cmd.append("--reload")
 
     print(f"Starting server on http://{args.host}:{args.port}")
-    subprocess.run(cmd, cwd=ROOT)
+    try:
+        return subprocess.run(cmd, cwd=PROJECT_ROOT, check=False).returncode
+    except KeyboardInterrupt:
+        return 130
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

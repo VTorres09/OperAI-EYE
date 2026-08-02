@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Evaluate Moondream against labeled dataset.
 
 Usage:
@@ -26,7 +25,8 @@ from PIL import Image
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
-from hf_dataset import (
+from operai_eye.paths import OUTPUT_DIR, PROMPTS_DIR
+from operai_eye.pipeline.hf_dataset import (
     HF_DATASET_REPO_ID,
     HF_DATASET_REVISION,
     DatasetPreparationError,
@@ -40,25 +40,46 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROMPT_PATH = Path("prompts/or_phase_simple.txt")
-OUTPUT_DIR = Path("output")
+DEFAULT_PROMPT_PATH = PROMPTS_DIR / "or_phase_simple.txt"
 VALID_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"}
 EVALUATION_PHASES = {"IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE"}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate Moondream on labeled OR images.")
-    parser.add_argument("--output", type=Path, help="Output CSV path (default: output/eval_results.csv)")
-    parser.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT_PATH, help="Prompt file path")
-    parser.add_argument("--model", default="vikhyatk/moondream2", help="Moondream model name")
+    parser = argparse.ArgumentParser(
+        description="Evaluate Moondream on labeled OR images."
+    )
+    parser.add_argument(
+        "--output", type=Path, help="Output CSV path (default: output/eval_results.csv)"
+    )
+    parser.add_argument(
+        "--prompt", type=Path, default=DEFAULT_PROMPT_PATH, help="Prompt file path"
+    )
+    parser.add_argument(
+        "--model", default="vikhyatk/moondream2", help="Moondream model name"
+    )
     parser.add_argument("--revision", default="2025-01-09", help="Model revision")
-    parser.add_argument("--device", choices=["mps", "cuda", "cpu"], help="Device to use")
+    parser.add_argument(
+        "--device", choices=["mps", "cuda", "cpu"], help="Device to use"
+    )
     parser.add_argument("--limit", type=int, help="Limit number of images to evaluate")
-    parser.add_argument("--compile", action="store_true", help="Compile model for speed")
-    parser.add_argument("--batch-size", type=int, default=8, help="Number of images to process before clearing GPU cache (default: 8 for 24GB L4 GPU)")
-    parser.add_argument("--model-id", help="Unique model ID for versioning (auto-generated if not provided)")
+    parser.add_argument(
+        "--compile", action="store_true", help="Compile model for speed"
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=8,
+        help="Number of images to process before clearing GPU cache (default: 8 for 24GB L4 GPU)",
+    )
+    parser.add_argument(
+        "--model-id",
+        help="Unique model ID for versioning (auto-generated if not provided)",
+    )
     parser.add_argument("--model-name", help="Human-readable model name")
-    parser.add_argument("--description", default="", help="Description of this evaluation run")
+    parser.add_argument(
+        "--description", default="", help="Description of this evaluation run"
+    )
     parser.add_argument(
         "--prepare-dataset",
         action=argparse.BooleanOptionalAction,
@@ -154,7 +175,9 @@ def evaluate_image(model: Any, image_path: Path, prompt: str) -> dict[str, Any]:
     image = Image.open(image_path)
     try:
         logger.debug("Evaluating %s with prompt length %d", image_path, len(prompt))
-        result = model.query(image, prompt, settings={"temperature": 0.1, "max_tokens": 50})
+        result = model.query(
+            image, prompt, settings={"temperature": 0.1, "max_tokens": 50}
+        )
         answer = result.get("answer", "")
         logger.debug("Model answer: %s", answer[:100])
         return parse_response(answer)
@@ -164,14 +187,14 @@ def evaluate_image(model: Any, image_path: Path, prompt: str) -> dict[str, Any]:
 
 def compute_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
     results = [
-        result
-        for result in results
-        if result.get("ground_truth") in EVALUATION_PHASES
+        result for result in results if result.get("ground_truth") in EVALUATION_PHASES
     ]
     total = len(results)
     correct = sum(1 for r in results if r["ground_truth"] == r["predicted"])
     accuracy = correct / total if total > 0 else 0.0
-    class_stats: dict[str, dict[str, int]] = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0, "total": 0})
+    class_stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"tp": 0, "fp": 0, "fn": 0, "total": 0}
+    )
     for r in results:
         gt = r["ground_truth"]
         pred = r["predicted"]
@@ -187,7 +210,11 @@ def compute_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         tp, fp, fn = stats["tp"], stats["fp"], stats["fn"]
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
         per_class[phase] = {
             "total": stats["total"],
             "correct": tp,
@@ -241,7 +268,7 @@ def main() -> int:
     if args.limit:
         labels = labels[: args.limit]
     labels = filter_evaluation_labels(labels)
-    
+
     # Handle model versioning
     model_id = args.model_id
     if model_id:
@@ -250,16 +277,25 @@ def main() -> int:
     else:
         output_path = args.output or OUTPUT_DIR / "eval_results.csv"
         model_name = None
-    
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     existing = load_existing_eval_results(output_path)
     to_evaluate = [row for row in labels if row["path"] not in existing]
     if not to_evaluate:
         logger.info("All images already evaluated")
         return 0
-    logger.info("Evaluating %d images (%d already done)", len(to_evaluate), len(existing))
+    logger.info(
+        "Evaluating %d images (%d already done)", len(to_evaluate), len(existing)
+    )
     model = load_model(args.model, args.revision, device, args.compile)
-    fieldnames = ["path", "ground_truth", "predicted", "confidence", "key_visual_cues", "correct"]
+    fieldnames = [
+        "path",
+        "ground_truth",
+        "predicted",
+        "confidence",
+        "key_visual_cues",
+        "correct",
+    ]
     file_exists = output_path.exists()
     errors = 0
     results_count = 0
@@ -279,7 +315,11 @@ def main() -> int:
                 prediction = evaluate_image(model, image_path, prompt)
             except Exception as e:
                 logger.warning("Error evaluating %s: %s", image_path, e)
-                prediction = {"phase": "ERROR", "confidence": 0.0, "key_visual_cues": [str(e)]}
+                prediction = {
+                    "phase": "ERROR",
+                    "confidence": 0.0,
+                    "key_visual_cues": [str(e)],
+                }
                 errors += 1
             predicted_phase = prediction.get("phase", "UNKNOWN")
             if predicted_phase not in VALID_PHASES:
@@ -299,7 +339,7 @@ def main() -> int:
             if (i + 1) % args.batch_size == 0:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                elif hasattr(torch, 'mps') and torch.backends.mps.is_available():
+                elif hasattr(torch, "mps") and torch.backends.mps.is_available():
                     torch.mps.empty_cache()
     logger.info("Evaluated %d images, errors: %d", results_count, errors)
     all_results = []
@@ -311,12 +351,19 @@ def main() -> int:
     logger.info("=" * 50)
     logger.info("EVALUATION RESULTS")
     logger.info("=" * 50)
-    logger.info("Total: %d | Correct: %d | Accuracy: %.2f%%", metrics["total"], metrics["correct"], metrics["accuracy"] * 100)
+    logger.info(
+        "Total: %d | Correct: %d | Accuracy: %.2f%%",
+        metrics["total"],
+        metrics["correct"],
+        metrics["accuracy"] * 100,
+    )
     logger.info("Errors: %d", errors)
     logger.info("-" * 50)
     logger.info("Per-class metrics:")
     for phase in ["IDLE", "PATIENT_IN_ROOM", "SURGERY_ACTIVE", "UNKNOWN"]:
-        stats = metrics["per_class"].get(phase, {"total": 0, "correct": 0, "precision": 0, "recall": 0, "f1": 0})
+        stats = metrics["per_class"].get(
+            phase, {"total": 0, "correct": 0, "precision": 0, "recall": 0, "f1": 0}
+        )
         logger.info(
             "  %s: n=%d, acc=%.2f%%, P=%.2f, R=%.2f, F1=%.2f",
             phase.ljust(16),
@@ -327,7 +374,7 @@ def main() -> int:
             stats["f1"],
         )
     logger.info("=" * 50)
-    
+
     # Save metrics
     if model_id:
         metrics_path = OUTPUT_DIR / f"eval_metrics_{model_id}.json"
@@ -335,11 +382,12 @@ def main() -> int:
         metrics_path = OUTPUT_DIR / "eval_metrics.json"
     metrics_path.write_text(json.dumps(metrics, indent=2))
     logger.info("Saved metrics to %s", metrics_path)
-    
+
     # Auto-register if model_id provided
     if model_id:
         try:
-            from app.eval_data import register_model
+            from operai_eye.web.eval_data import register_model
+
             register_model(
                 model_id=model_id,
                 model_name=model_name,
@@ -353,7 +401,7 @@ def main() -> int:
             logger.info("Registered model as '%s' in evaluation metadata", model_id)
         except Exception as e:
             logger.warning("Failed to register model: %s", e)
-    
+
     return 0
 
 

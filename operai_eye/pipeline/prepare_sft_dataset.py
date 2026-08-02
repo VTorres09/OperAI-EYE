@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Analyze, stage, publish, and verify the OperAI-EYE SFT dataset."""
 
 from __future__ import annotations
@@ -19,7 +18,13 @@ from typing import Any, Iterable
 from dotenv import load_dotenv
 from huggingface_hub import HfApi
 
-from label_data import DATA_DIR, OUTPUT_DIR, VALID_PHASES, deterministic_sample
+from operai_eye.paths import PROMPTS_DIR
+from operai_eye.pipeline.label_data import (
+    DATA_DIR,
+    OUTPUT_DIR,
+    VALID_PHASES,
+    deterministic_sample,
+)
 
 DEFAULT_REPO_ID = "OperAI-Research/operai-eye-exocentric-rgb-sft"
 DEFAULT_STAGE_DIR = OUTPUT_DIR / "sft_dataset"
@@ -55,20 +60,26 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    analyze = subparsers.add_parser("analyze", help="Analyze labels and recommend sample sizes")
+    analyze = subparsers.add_parser(
+        "analyze", help="Analyze labels and recommend sample sizes"
+    )
     analyze.add_argument("--seed", type=int, default=DEFAULT_SEED)
     analyze.add_argument("--output", type=Path, default=DEFAULT_ANALYSIS_PATH)
     analyze.add_argument("--json", action="store_true")
 
-    stage = subparsers.add_parser("stage", help="Build an ImageFolder-compatible upload directory")
+    stage = subparsers.add_parser(
+        "stage", help="Build an ImageFolder-compatible upload directory"
+    )
     stage.add_argument("--seed", type=int, default=DEFAULT_SEED)
     stage.add_argument("--analysis", type=Path, default=DEFAULT_ANALYSIS_PATH)
     stage.add_argument("--stage-dir", type=Path, default=DEFAULT_STAGE_DIR)
-    stage.add_argument("--prompt", type=Path, default=Path("prompts/or_phase.txt"))
+    stage.add_argument("--prompt", type=Path, default=PROMPTS_DIR / "or_phase.txt")
     stage.add_argument("--model", default=os.getenv("MODEL_NAME", "kimi-k2.6"))
     stage.add_argument("--allow-unready", action="store_true")
 
-    publish = subparsers.add_parser("publish", help="Upload and verify the staged dataset")
+    publish = subparsers.add_parser(
+        "publish", help="Upload and verify the staged dataset"
+    )
     publish.add_argument("--repo-id", default=DEFAULT_REPO_ID)
     publish.add_argument("--stage-dir", type=Path, default=DEFAULT_STAGE_DIR)
     publish.add_argument("--revision-output", type=Path, default=DEFAULT_REVISION_PATH)
@@ -99,7 +110,9 @@ def maximum_distribution_gap(
     sample: dict[str, float],
 ) -> float:
     keys = set(full) | set(sample)
-    return max((abs(full.get(key, 0.0) - sample.get(key, 0.0)) for key in keys), default=0.0)
+    return max(
+        (abs(full.get(key, 0.0) - sample.get(key, 0.0)) for key in keys), default=0.0
+    )
 
 
 def read_successful_labels(path: Path) -> dict[str, dict[str, str]]:
@@ -152,7 +165,13 @@ def confidence_summary(rows: list[dict[str, str]]) -> dict[str, float | int | No
         except ValueError:
             continue
     if not values:
-        return {"count": 0, "minimum": None, "median": None, "mean": None, "maximum": None}
+        return {
+            "count": 0,
+            "minimum": None,
+            "median": None,
+            "mean": None,
+            "maximum": None,
+        }
     return {
         "count": len(values),
         "minimum": round(min(values), 4),
@@ -169,7 +188,9 @@ def analyze_split(
     labels: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
     rule = SPLIT_RULES[split]
-    completed_prefix, selected_count = completed_milestone(shuffled_paths, labels, split)
+    completed_prefix, selected_count = completed_milestone(
+        shuffled_paths, labels, split
+    )
     selected_paths = shuffled_paths[:selected_count]
     selected_rows = [
         labels[str(path.relative_to(DATA_DIR))]
@@ -185,8 +206,12 @@ def analyze_split(
     metadata_gaps = {}
     for field in METADATA_FIELDS:
         full_dist = distribution(image_metadata(path)[field] for path in full_paths)
-        sample_dist = distribution(image_metadata(path)[field] for path in selected_paths)
-        metadata_gaps[field] = round(maximum_distribution_gap(full_dist, sample_dist), 6)
+        sample_dist = distribution(
+            image_metadata(path)[field] for path in selected_paths
+        )
+        metadata_gaps[field] = round(
+            maximum_distribution_gap(full_dist, sample_dist), 6
+        )
 
     class_minimums_met = all(
         class_counts.get(phase, 0) >= rule["minimum_per_core_class"]
@@ -198,7 +223,11 @@ def analyze_split(
 
     stability_gap = None
     class_distribution_stable = True
-    if split == "train" and selected_count >= 1_000 and len(selected_rows) == selected_count:
+    if (
+        split == "train"
+        and selected_count >= 1_000
+        and len(selected_rows) == selected_count
+    ):
         block = rule["step"]
         previous = selected_rows[selected_count - 2 * block : selected_count - block]
         latest = selected_rows[selected_count - block : selected_count]
@@ -338,7 +367,7 @@ Kimi-labeled exocentric operating-room frames derived from
 - Train examples: {train_count}
 - Validation examples: {validation_count}
 - Labeling model: `{model}`
-- Sampling seed: `{analysis['seed']}`
+- Sampling seed: `{analysis["seed"]}`
 - Prompt SHA-256: `{prompt_hash}`
 - Classes: `IDLE`, `PATIENT_IN_ROOM`, `SURGERY_ACTIVE`
 
@@ -409,23 +438,25 @@ def stage_dataset(
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
             staged_manifest[split].append(source_key)
-            metadata_rows.append({
-                "file_name": str(image_rel),
-                "label": row["phase"],
-                "phase": row["phase"],
-                "question": QUESTION,
-                "confidence": row.get("confidence", ""),
-                "key_visual_cues": row.get("key_visual_cues", ""),
-                "surgery_type": row.get("surgery_type", ""),
-                "procedure_id": row.get("procedure_id", ""),
-                "take_id": row.get("take_id", ""),
-                "camera": row.get("camera", ""),
-                "frame_id": row.get("frame_id", ""),
-                "source_path": source_key,
-                "labeling_model": model,
-                "sampling_seed": seed,
-                "prompt_sha256": prompt_hash,
-            })
+            metadata_rows.append(
+                {
+                    "file_name": str(image_rel),
+                    "label": row["phase"],
+                    "phase": row["phase"],
+                    "question": QUESTION,
+                    "confidence": row.get("confidence", ""),
+                    "key_visual_cues": row.get("key_visual_cues", ""),
+                    "surgery_type": row.get("surgery_type", ""),
+                    "procedure_id": row.get("procedure_id", ""),
+                    "take_id": row.get("take_id", ""),
+                    "camera": row.get("camera", ""),
+                    "frame_id": row.get("frame_id", ""),
+                    "source_path": source_key,
+                    "labeling_model": model,
+                    "sampling_seed": seed,
+                    "prompt_sha256": prompt_hash,
+                }
+            )
 
         if not metadata_rows:
             raise RuntimeError(f"No trainable rows were staged for {split}")
@@ -567,24 +598,31 @@ def main() -> int:
             args.seed,
             args.allow_unready,
         )
-        print(json.dumps({
-            "stage_dir": str(args.stage_dir),
-            "counts": {
-                split: len(paths)
-                for split, paths in provenance["sampled_paths"].items()
-            },
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "stage_dir": str(args.stage_dir),
+                    "counts": {
+                        split: len(paths)
+                        for split, paths in provenance["sampled_paths"].items()
+                    },
+                },
+                indent=2,
+            )
+        )
         return 0
     if args.command == "publish":
-        print(json.dumps(
-            publish_dataset(
-                args.repo_id,
-                args.stage_dir,
-                args.revision_output,
-                args.workers,
-            ),
-            indent=2,
-        ))
+        print(
+            json.dumps(
+                publish_dataset(
+                    args.repo_id,
+                    args.stage_dir,
+                    args.revision_output,
+                    args.workers,
+                ),
+                indent=2,
+            )
+        )
         return 0
     raise AssertionError(args.command)
 

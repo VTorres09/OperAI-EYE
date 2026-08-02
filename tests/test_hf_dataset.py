@@ -5,7 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hf_dataset import DatasetPreparationError, validate_labeled_images
+from operai_eye.pipeline.hf_dataset import (
+    DatasetPreparationError,
+    validate_labeled_images,
+)
 
 
 class ValidateLabeledImagesTest(unittest.TestCase):

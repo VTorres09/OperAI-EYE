@@ -8,7 +8,11 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from hf_sft_dataset import HFSFTDatasetPaths, build_corrected_stage, write_corrections
+from operai_eye.pipeline.hf_sft_dataset import (
+    HFSFTDatasetPaths,
+    build_corrected_stage,
+    write_corrections,
+)
 
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:

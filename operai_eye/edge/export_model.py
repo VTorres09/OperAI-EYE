@@ -61,7 +61,7 @@ def export_onnx(checkpoint_path: Path, output_path: Path, *, opset: int) -> None
             "lightly-train==0.15.1 is required to read the training export"
         ) from exc
 
-    from finetuning.dinov3.evaluate_lightly import load_model
+    from operai_eye.training.dinov3.evaluate_lightly import load_model
 
     class LogitsOnly(nn.Module):
         def __init__(self, task_model: nn.Module) -> None:

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "operai-eye"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local operating-room scene classification and monitoring"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -35,13 +35,26 @@ edge = [
 ]
 
 [project.scripts]
-operai-edge = "edge_app.cli:main"
+operai-edge = "operai_eye.edge.cli:main"
+operai-export-model = "operai_eye.edge.export_model:main"
+operai-web = "operai_eye.web.run:main"
+operai-download-data = "operai_eye.pipeline.download_exocentric_rgb:main"
+operai-label-data = "operai_eye.pipeline.label_data:main"
+operai-audit-labels = "operai_eye.pipeline.audit_labels:main"
+operai-prepare-hf = "operai_eye.pipeline.prepare_hf_dataset:main"
+operai-prepare-sft = "operai_eye.pipeline.prepare_sft_dataset:main"
+operai-evaluate-moondream = "operai_eye.pipeline.evaluate_moondream:main"
+operai-register-eval = "operai_eye.pipeline.register_eval:main"
+operai-train-dinov3 = "operai_eye.training.dinov3.train_lightly:main"
+operai-evaluate-dinov3 = "operai_eye.training.dinov3.evaluate_lightly:main"
+operai-train-moondream = "operai_eye.training.moondream.finetune_moondream:main"
+operai-evaluate-moondream-sft = "operai_eye.training.moondream.evaluate_finetune:main"
 
 [tool.setuptools.packages.find]
-include = ["edge_app*"]
+include = ["operai_eye*"]
 
 [tool.setuptools.package-data]
-edge_app = ["ui/*"]
+"operai_eye.edge" = ["ui/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

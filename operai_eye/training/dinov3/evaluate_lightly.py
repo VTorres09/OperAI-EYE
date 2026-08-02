@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Evaluate a LightlyTrain DINOv3 multilabel export on the test split."""
 
 from __future__ import annotations
@@ -6,8 +5,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import os
-import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -17,14 +14,10 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from operai_eye.paths import OUTPUT_DIR
+from operai_eye.pipeline.hf_dataset import get_hf_dataset_paths
+from operai_eye.web.eval_data import register_model
 
-from app.eval_data import register_model  # noqa: E402
-from hf_dataset import get_hf_dataset_paths  # noqa: E402
-
-OUTPUT_DIR = PROJECT_ROOT / "output"
 DEFAULT_EXPORT = (
     OUTPUT_DIR
     / "lightly_dinov3"
@@ -86,7 +79,9 @@ class ImageRows(Dataset):
         self.snapshot_path = snapshot_path
         self.transform = transforms.Compose(
             [
-                transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC),
+                transforms.Resize(
+                    256, interpolation=transforms.InterpolationMode.BICUBIC
+                ),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
                 transforms.Normalize(
@@ -129,7 +124,9 @@ def load_model(export_path: Path, device: torch.device) -> Any:
     init_args.pop("model_name", None)
     init_args["load_weights"] = False
     model = ImageClassification(**init_args)
-    incompatible = model.load_state_dict(normalize_train_model_state(checkpoint["train_model"]))
+    incompatible = model.load_state_dict(
+        normalize_train_model_state(checkpoint["train_model"])
+    )
     if incompatible.missing_keys or incompatible.unexpected_keys:
         raise RuntimeError(
             "Could not load the LightlyTrain export cleanly. "
@@ -144,14 +141,13 @@ def load_model(export_path: Path, device: torch.device) -> Any:
 def normalize_train_model_state(state_dict: dict[str, Any]) -> dict[str, Any]:
     """Convert exported LightningModule keys to the task model keyspace."""
 
-    return {
-        key.removeprefix("model."): value
-        for key, value in state_dict.items()
-    }
+    return {key.removeprefix("model."): value for key, value in state_dict.items()}
 
 
 def phase_from_probs(probs: torch.Tensor) -> tuple[str, float, dict[str, float]]:
-    values = {name: float(probs[index].item()) for index, name in enumerate(CLASS_NAMES)}
+    values = {
+        name: float(probs[index].item()) for index, name in enumerate(CLASS_NAMES)
+    }
     phase_scores = {
         "IDLE": values["idle"],
         "PATIENT_IN_ROOM": values["people_in_room"] * values["surgery_inactive"],
@@ -182,7 +178,9 @@ def compute_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
         tp, fp, fn = stats["tp"], stats["fp"], stats["fn"]
         precision = tp / (tp + fp) if tp + fp else 0.0
         recall = tp / (tp + fn) if tp + fn else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        )
         per_class[phase] = {
             "total": stats["total"],
             "correct": tp,
@@ -201,7 +199,9 @@ def compute_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
 def main() -> int:
     args = parse_args()
     output_path = args.output or OUTPUT_DIR / f"eval_results_{args.model_id}.csv"
-    metrics_path = args.metrics_output or OUTPUT_DIR / f"eval_metrics_{args.model_id}.json"
+    metrics_path = (
+        args.metrics_output or OUTPUT_DIR / f"eval_metrics_{args.model_id}.json"
+    )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     dataset = get_hf_dataset_paths(
@@ -246,7 +246,11 @@ def main() -> int:
         with torch.inference_mode():
             for batch in tqdm(loader, desc="Evaluating DINOv3"):
                 images = batch["image"].to(device, non_blocking=True)
-                with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
+                with torch.autocast(
+                    device_type=device.type,
+                    dtype=torch.bfloat16,
+                    enabled=device.type == "cuda",
+                ):
                     logits = model.forward_backend(images)
                 probs = torch.sigmoid(logits.float()).cpu()
                 for index, image_path in enumerate(batch["path"]):
@@ -264,7 +268,9 @@ def main() -> int:
                             "correct": ground_truth == predicted,
                             "prob_idle": round(values["idle"], 6),
                             "prob_people_in_room": round(values["people_in_room"], 6),
-                            "prob_surgery_inactive": round(values["surgery_inactive"], 6),
+                            "prob_surgery_inactive": round(
+                                values["surgery_inactive"], 6
+                            ),
                             "prob_surgery_active": round(values["surgery_active"], 6),
                         }
                     )

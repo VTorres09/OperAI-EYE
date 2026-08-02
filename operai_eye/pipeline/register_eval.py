@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Register an evaluation run in the metadata system.
 
 Usage:
@@ -6,12 +5,8 @@ Usage:
 """
 
 import argparse
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from app.eval_data import register_model
+from operai_eye.web.eval_data import register_model
 
 
 def main():
@@ -20,16 +15,16 @@ def main():
     parser.add_argument("--model-name", required=True, help="Human-readable model name")
     parser.add_argument("--prompt", required=True, help="Prompt file used")
     parser.add_argument("--description", default="", help="Description of the run")
-    
+
     args = parser.parse_args()
-    
+
     result = register_model(
         model_id=args.model_id,
         model_name=args.model_name,
         prompt_file=args.prompt,
         description=args.description,
     )
-    
+
     print(f"Registered model: {args.model_id}")
     print(f"  Name: {result['model_name']}")
     print(f"  Prompt: {result['prompt_file']}")

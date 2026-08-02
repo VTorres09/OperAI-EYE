@@ -1,10 +1,10 @@
 import json
-from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
-from hf_dataset import (
+from operai_eye.paths import OUTPUT_DIR
+from operai_eye.pipeline.hf_dataset import (
     HF_DATASET_REPO_ID,
     HF_DATASET_REVISION,
     HF_LABELS_FILE,
@@ -12,7 +12,6 @@ from hf_dataset import (
     get_hf_dataset_paths,
 )
 
-OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 METADATA_FILE = OUTPUT_DIR / "eval_metadata.json"
 PATIENT_SURGERY_CLASSES = {"PATIENT_IN_ROOM", "SURGERY_ACTIVE"}
 MERGED_PATIENT_SURGERY_CLASS = "PATIENT_PRESENT"
@@ -155,7 +154,13 @@ def get_eval_results(
         df = df.merge(labels_df[meta_cols], on="path", how="left")
 
     # Apply filters
-    if phase or surgery_type or camera or procedure_id is not None or take_id is not None:
+    if (
+        phase
+        or surgery_type
+        or camera
+        or procedure_id is not None
+        or take_id is not None
+    ):
         df = _apply_eval_filters(
             df,
             phase=phase,
@@ -184,7 +189,10 @@ def get_eval_results(
     correct = (df["predicted"] == df["ground_truth"]).sum()
     accuracy = correct / total if total > 0 else 0
 
-    classes = sorted(set(df["ground_truth"].dropna().unique()) | set(df["predicted"].dropna().unique()))
+    classes = sorted(
+        set(df["ground_truth"].dropna().unique())
+        | set(df["predicted"].dropna().unique())
+    )
     per_class = {}
     for cls in classes:
         tp = ((df["predicted"] == cls) & (df["ground_truth"] == cls)).sum()
@@ -193,7 +201,11 @@ def get_eval_results(
 
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0
+        )
 
         per_class[cls] = {
             "precision": round(float(precision), 3),
@@ -206,7 +218,9 @@ def get_eval_results(
     for gt in classes:
         confusion[gt] = {}
         for pred in classes:
-            confusion[gt][pred] = int(((df["ground_truth"] == gt) & (df["predicted"] == pred)).sum())
+            confusion[gt][pred] = int(
+                ((df["ground_truth"] == gt) & (df["predicted"] == pred)).sum()
+            )
 
     return {
         "model_id": model_id,
@@ -266,12 +280,15 @@ def compare_models(
             "per_class": {},
         }
         for cls in all_classes:
-            model_data["per_class"][cls] = r["per_class"].get(cls, {
-                "precision": 0,
-                "recall": 0,
-                "f1": 0,
-                "support": 0,
-            })
+            model_data["per_class"][cls] = r["per_class"].get(
+                cls,
+                {
+                    "precision": 0,
+                    "recall": 0,
+                    "f1": 0,
+                    "support": 0,
+                },
+            )
         comparison["models"].append(model_data)
 
     return comparison

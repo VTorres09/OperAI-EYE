@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-import label_data
+from operai_eye.pipeline import label_data
 
 
 class SamplingTest(unittest.TestCase):
@@ -36,20 +36,22 @@ class LabelCsvTest(unittest.TestCase):
             writer.writerows(rows)
 
     def test_existing_labels_ignore_errors_and_parse_quoted_fields(self) -> None:
-        self.write_rows([
-            {
-                "path": "train/a.png",
-                "phase": "IDLE",
-                "key_visual_cues": "staff, equipment",
-                "error": "",
-            },
-            {
-                "path": "train/b.png",
-                "phase": "ERROR",
-                "key_visual_cues": "",
-                "error": "timeout, retry later",
-            },
-        ])
+        self.write_rows(
+            [
+                {
+                    "path": "train/a.png",
+                    "phase": "IDLE",
+                    "key_visual_cues": "staff, equipment",
+                    "error": "",
+                },
+                {
+                    "path": "train/b.png",
+                    "phase": "ERROR",
+                    "key_visual_cues": "",
+                    "error": "timeout, retry later",
+                },
+            ]
+        )
 
         self.assertEqual(
             label_data.load_existing_labels(self.csv_path),
@@ -57,25 +59,34 @@ class LabelCsvTest(unittest.TestCase):
         )
 
     def test_upsert_replaces_failed_row(self) -> None:
-        self.write_rows([{
-            "path": "train/a.png",
-            "phase": "ERROR",
-            "error": "timeout, retry later",
-        }])
+        self.write_rows(
+            [
+                {
+                    "path": "train/a.png",
+                    "phase": "ERROR",
+                    "error": "timeout, retry later",
+                }
+            ]
+        )
 
-        label_data.update_csv_rows([{
-            "path": "train/a.png",
-            "split": "train",
-            "surgery_type": "MISS",
-            "procedure_id": "1",
-            "take_id": "1",
-            "camera": "external_1",
-            "frame_id": "000001",
-            "phase": "IDLE",
-            "confidence": 0.9,
-            "key_visual_cues": "empty, quiet",
-            "error": "",
-        }], self.csv_path)
+        label_data.update_csv_rows(
+            [
+                {
+                    "path": "train/a.png",
+                    "split": "train",
+                    "surgery_type": "MISS",
+                    "procedure_id": "1",
+                    "take_id": "1",
+                    "camera": "external_1",
+                    "frame_id": "000001",
+                    "phase": "IDLE",
+                    "confidence": 0.9,
+                    "key_visual_cues": "empty, quiet",
+                    "error": "",
+                }
+            ],
+            self.csv_path,
+        )
 
         with self.csv_path.open(newline="", encoding="utf-8") as handle:
             rows = list(csv.DictReader(handle))
@@ -86,15 +97,26 @@ class LabelCsvTest(unittest.TestCase):
 
 class RetryTest(unittest.IsolatedAsyncioTestCase):
     async def test_transient_error_is_retried(self) -> None:
-        image = Path("data/exocentric_rgb/train/MISS/1/take_1/external_1/frame_000001.png")
+        image = Path(
+            "data/exocentric_rgb/train/MISS/1/take_1/external_1/frame_000001.png"
+        )
         completion = SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content='{"phase":"IDLE","confidence":0.9,"key_visual_cues":[]}'))]
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content='{"phase":"IDLE","confidence":0.9,"key_visual_cues":[]}'
+                    )
+                )
+            ]
         )
         create = AsyncMock(side_effect=[RuntimeError("503 unavailable"), completion])
-        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        )
 
-        with patch.object(label_data, "image_to_base64", return_value="encoded"), patch(
-            "label_data.asyncio.sleep", new=AsyncMock()
+        with (
+            patch.object(label_data, "image_to_base64", return_value="encoded"),
+            patch("operai_eye.pipeline.label_data.asyncio.sleep", new=AsyncMock()),
         ):
             result = await label_data.label_image(
                 client,
