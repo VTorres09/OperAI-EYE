@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#090b0f" />
     <title>OperAI-EYE · Live</title>
-    <link rel="stylesheet" href="/assets/app.css" />
+    <link rel="stylesheet" href="/assets/app.css?v=2" />
   </head>
   <body>
     <div class="app-shell">
@@ -47,6 +47,7 @@
           <div class="camera-column">
             <article class="camera-card" id="cameraCard">
               <video id="cameraVideo" autoplay muted playsinline></video>
+              <img id="cameraImage" class="camera-image" alt="Live Raspberry Pi camera preview" />
               <div class="camera-empty" id="cameraEmpty">
                 <div class="camera-glyph"><span></span></div>
                 <h2>Your camera is off</h2>
@@ -131,6 +132,6 @@
 
     <div class="toast" id="toast" role="alert"></div>
     <canvas id="captureCanvas" hidden></canvas>
-    <script src="/assets/app.js" defer></script>
+    <script src="/assets/app.js?v=2" defer></script>
   </body>
 </html>

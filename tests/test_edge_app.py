@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 from operai_eye.edge.config import (
+    CameraConfig,
     DecisionConfig,
     EdgeConfig,
     ServiceConfig,
@@ -410,6 +411,87 @@ class DashboardTest(unittest.TestCase):
 
             self.assertIn("requestBody", operation)
             self.assertNotIn("parameters", operation)
+
+    def test_server_camera_lifecycle_returns_a_browser_ready_frame(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = EdgeConfig(
+                storage=StorageConfig(
+                    database_path=root / "predictions.sqlite3",
+                    image_directory=root / "images",
+                )
+            )
+            store = PredictionStore(
+                config.storage.database_path,
+                image_directory=config.storage.image_directory,
+            )
+            source = FakeSource(count=1)
+            runtime = DashboardRuntime(
+                config,
+                classifier=FakeClassifier([]),
+                store=store,
+                source=source,
+            )
+
+            self.assertEqual(runtime.public_config()["capture_mode"], "server")
+            runtime.start_camera()
+            frame = runtime.capture_camera_frame()
+            decoded = _decode_browser_image(frame["image"])
+            self.assertEqual(decoded.size, (32, 24))
+            self.assertEqual((frame["width"], frame["height"]), (32, 24))
+            runtime.stop_camera()
+
+            self.assertFalse(source.started)
+            store.close()
+
+    def test_opencv_dashboard_keeps_browser_camera_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = EdgeConfig(
+                camera=CameraConfig(backend="opencv"),
+                storage=StorageConfig(
+                    database_path=root / "predictions.sqlite3",
+                    image_directory=root / "images",
+                ),
+            )
+            store = PredictionStore(
+                config.storage.database_path,
+                image_directory=config.storage.image_directory,
+            )
+            runtime = DashboardRuntime(
+                config,
+                classifier=FakeClassifier([]),
+                store=store,
+            )
+
+            self.assertEqual(runtime.public_config()["capture_mode"], "browser")
+            store.close()
+
+    def test_camera_endpoints_are_exposed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = EdgeConfig(
+                storage=StorageConfig(
+                    database_path=root / "predictions.sqlite3",
+                    image_directory=root / "images",
+                )
+            )
+            store = PredictionStore(
+                config.storage.database_path,
+                image_directory=config.storage.image_directory,
+            )
+            app = create_dashboard_app(
+                config,
+                classifier=FakeClassifier([]),
+                store=store,
+                source=FakeSource(),
+            )
+            paths = app.openapi()["paths"]
+            store.close()
+
+            self.assertIn("/api/camera/start", paths)
+            self.assertIn("/api/camera/frame", paths)
+            self.assertIn("/api/camera/stop", paths)
 
 
 class DirectorySourceTest(unittest.TestCase):

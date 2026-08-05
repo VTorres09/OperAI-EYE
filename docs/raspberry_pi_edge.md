@@ -153,6 +153,24 @@ Browser camera APIs require a secure context. `localhost` works without HTTPS;
 opening the Pi by a raw LAN IP may require an HTTPS reverse proxy. The ordinary
 `run` command remains the recommended unattended, display-free production mode.
 
+On a Raspberry Pi desktop that is already running the unattended user service,
+install the demo helper once:
+
+```bash
+install -Dm755 deploy/raspberry-pi/operai-eye-demo \
+  ~/.local/bin/operai-eye-demo
+```
+
+Then open a terminal through Raspberry Pi Connect screen sharing and run:
+
+```bash
+~/.local/bin/operai-eye-demo
+```
+
+The helper pauses unattended capture, opens the dashboard on the Pi itself, and
+restores the production service when the demo exits. Click **Enable camera** in
+the dashboard to start the first five-frame observation.
+
 ## 5. Offline dataset replay
 
 The EgoExOR download is stored as HDF5 frame arrays rather than ordinary video

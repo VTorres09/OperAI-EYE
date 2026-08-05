@@ -5,17 +5,21 @@ const state = {
     interval_seconds: 60,
     camera_width: 1920,
     camera_height: 1080,
+    capture_mode: 'browser',
   },
   stream: null,
   running: false,
   busy: false,
+  previewBusy: false,
   nextBurstAt: null,
   cycle: 0,
   timer: null,
+  previewTimer: null,
 }
 
 const $ = (selector) => document.querySelector(selector)
 const video = $('#cameraVideo')
+const cameraImage = $('#cameraImage')
 const canvas = $('#captureCanvas')
 const cameraButton = $('#cameraButton')
 const cameraCard = $('#cameraCard')
@@ -69,7 +73,17 @@ function updateCountdown() {
   $('#countdown').textContent = state.busy ? 'Observing' : `00:${String(seconds).padStart(2, '0')}`
 }
 
-function captureFrame() {
+async function fetchServerFrame() {
+  const response = await fetch('/api/camera/frame', { cache: 'no-store' })
+  const result = await response.json()
+  if (!response.ok) throw new Error(result.detail || `Camera frame failed (${response.status})`)
+  cameraImage.src = result.image
+  $('#resolutionChip').textContent = `${result.width} × ${result.height}`
+  return result.image
+}
+
+async function captureFrame() {
+  if (state.config.capture_mode === 'server') return fetchServerFrame()
   const sourceWidth = video.videoWidth
   const sourceHeight = video.videoHeight
   if (!sourceWidth || !sourceHeight) throw new Error('The camera has not produced a frame yet.')
@@ -151,7 +165,7 @@ async function runBurst() {
     for (let index = 0; index < state.config.burst_size; index += 1) {
       if (!state.running) return
       $('#overlayPhase').textContent = `FRAME ${index + 1} OF ${state.config.burst_size}`
-      const dataUrl = captureFrame()
+      const dataUrl = await captureFrame()
       images.push(dataUrl)
       showCapturedFrame(index, dataUrl)
       if (index < state.config.burst_size - 1) {
@@ -188,40 +202,72 @@ async function runBurst() {
 }
 
 async function startCamera() {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error('Camera access requires localhost or a secure HTTPS connection.')
+  if (state.config.capture_mode === 'server') {
+    const response = await fetch('/api/camera/start', { method: 'POST' })
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.detail || `Camera start failed (${response.status})`)
+    state.running = true
+    cameraCard.classList.add('active', 'server-mode')
+    await fetchServerFrame()
+    state.previewTimer = window.setInterval(refreshServerPreview, 500)
+  } else {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Camera access requires localhost or a secure HTTPS connection.')
+    }
+    state.stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: state.config.camera_width },
+        height: { ideal: state.config.camera_height },
+        facingMode: 'environment',
+      },
+      audio: false,
+    })
+    video.srcObject = state.stream
+    await video.play()
+    state.running = true
+    cameraCard.classList.add('active', 'browser-mode')
+    $('#resolutionChip').textContent = `${video.videoWidth} × ${video.videoHeight}`
   }
-  state.stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      width: { ideal: state.config.camera_width },
-      height: { ideal: state.config.camera_height },
-      facingMode: 'environment',
-    },
-    audio: false,
-  })
-  video.srcObject = state.stream
-  await video.play()
-  state.running = true
-  cameraCard.classList.add('active')
   cameraButton.classList.add('active')
   cameraButton.lastElementChild.textContent = 'Stop camera'
   cameraButton.firstElementChild.textContent = '■'
   setConnection(true)
-  $('#resolutionChip').textContent = `${video.videoWidth} × ${video.videoHeight}`
   window.clearInterval(state.countdownTimer)
   state.countdownTimer = window.setInterval(updateCountdown, 250)
   runBurst()
 }
 
-function stopCamera() {
+async function refreshServerPreview() {
+  if (!state.running || state.busy || state.previewBusy) return
+  state.previewBusy = true
+  try {
+    await fetchServerFrame()
+  } catch (error) {
+    showToast(error.message || String(error))
+    await stopCamera()
+  } finally {
+    state.previewBusy = false
+  }
+}
+
+async function stopCamera() {
   state.running = false
   state.busy = false
   window.clearTimeout(state.timer)
   window.clearInterval(state.countdownTimer)
+  window.clearInterval(state.previewTimer)
   state.stream?.getTracks().forEach((track) => track.stop())
   state.stream = null
   video.srcObject = null
-  cameraCard.classList.remove('active', 'capturing')
+  cameraImage.removeAttribute('src')
+  if (state.config.capture_mode === 'server') {
+    try {
+      await fetch('/api/camera/stop', { method: 'POST' })
+    } catch (_) {
+      // The UI still needs to reset if the server disappears during shutdown.
+    }
+  }
+  cameraCard.classList.remove('active', 'capturing', 'browser-mode', 'server-mode')
   cameraButton.classList.remove('active')
   cameraButton.lastElementChild.textContent = 'Enable camera'
   cameraButton.firstElementChild.textContent = '●'
@@ -232,15 +278,16 @@ function stopCamera() {
 
 cameraButton.addEventListener('click', async () => {
   if (state.running) {
-    stopCamera()
+    await stopCamera()
     return
   }
   cameraButton.disabled = true
   try {
     await startCamera()
   } catch (error) {
-    stopCamera()
-    showToast(`${error.message || error} Check the browser's Camera permission and try again.`)
+    await stopCamera()
+    const hint = state.config.capture_mode === 'browser' ? " Check the browser's Camera permission and try again." : ''
+    showToast(`${error.message || error}${hint}`)
   } finally {
     cameraButton.disabled = false
   }
