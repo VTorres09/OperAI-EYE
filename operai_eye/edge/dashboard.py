@@ -19,6 +19,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from .config import EdgeConfig
 from .decision import FramePrediction, majority_vote
 from .inference import DinoOnnxClassifier
+from .sources import create_camera_source
 from .storage import PredictionStore
 
 UI_DIRECTORY = Path(__file__).with_name("ui")
@@ -35,6 +36,7 @@ class DashboardRuntime:
         *,
         classifier: Any | None = None,
         store: PredictionStore | None = None,
+        source: Any | None = None,
     ) -> None:
         self.config = config
         self.classifier = classifier or DinoOnnxClassifier(
@@ -53,6 +55,11 @@ class DashboardRuntime:
         )
         self._owns_store = store is None
         self._inference_lock = threading.Lock()
+        self.source = source
+        if self.source is None and config.camera.backend == "picamera2":
+            self.source = create_camera_source(config.camera)
+        self._camera_lock = threading.Lock()
+        self._camera_started = False
 
     def public_config(self) -> dict[str, object]:
         service = self.config.service
@@ -62,7 +69,45 @@ class DashboardRuntime:
             "interval_seconds": service.interval_seconds,
             "camera_width": self.config.camera.width,
             "camera_height": self.config.camera.height,
+            "capture_mode": "server" if self.source is not None else "browser",
         }
+
+    def start_camera(self) -> None:
+        if self.source is None:
+            raise RuntimeError("No server-managed camera is configured")
+        with self._camera_lock:
+            if not self._camera_started:
+                self.source.start()
+                self._camera_started = True
+
+    def capture_camera_frame(self) -> dict[str, object]:
+        if self.source is None:
+            raise RuntimeError("No server-managed camera is configured")
+        with self._camera_lock:
+            if not self._camera_started:
+                raise RuntimeError("The server-managed camera is not started")
+            image = self.source.capture().convert("RGB")
+        image.thumbnail((1280, 720), Image.Resampling.LANCZOS)
+        buffer = BytesIO()
+        image.save(
+            buffer,
+            format="JPEG",
+            quality=self.config.storage.jpeg_quality,
+        )
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return {
+            "image": f"data:image/jpeg;base64,{encoded}",
+            "width": image.width,
+            "height": image.height,
+        }
+
+    def stop_camera(self) -> None:
+        if self.source is None:
+            return
+        with self._camera_lock:
+            if self._camera_started:
+                self.source.close()
+                self._camera_started = False
 
     def classify_encoded_images(
         self, encoded_images: Sequence[str]
@@ -110,6 +155,7 @@ class DashboardRuntime:
         }
 
     def close(self) -> None:
+        self.stop_camera()
         if self._owns_store:
             self.store.close()
 
@@ -147,15 +193,21 @@ def create_dashboard_app(
     *,
     classifier: Any | None = None,
     store: PredictionStore | None = None,
+    source: Any | None = None,
     serve_ui: bool = True,
 ):
-    """Build the FastAPI dashboard without touching the operating-system camera."""
+    """Build the FastAPI dashboard and optional Pi-native camera endpoints."""
 
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
-    runtime = DashboardRuntime(config, classifier=classifier, store=store)
+    runtime = DashboardRuntime(
+        config,
+        classifier=classifier,
+        store=store,
+        source=source,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -187,6 +239,35 @@ def create_dashboard_app(
                 status_code=503, detail="Inference backend is not ready"
             )
         return {"status": "ready"}
+
+    @app.post("/api/camera/start")
+    def camera_start():
+        try:
+            runtime.start_camera()
+            return {"status": "started"}
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Camera start failed: {exc}"
+            ) from exc
+
+    @app.get("/api/camera/frame")
+    def camera_frame():
+        try:
+            return runtime.capture_camera_frame()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Camera capture failed: {exc}"
+            ) from exc
+
+    @app.post("/api/camera/stop")
+    def camera_stop():
+        try:
+            runtime.stop_camera()
+            return {"status": "stopped"}
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Camera stop failed: {exc}"
+            ) from exc
 
     @app.post("/api/classify")
     async def classify(payload: dict[str, list[str]]):

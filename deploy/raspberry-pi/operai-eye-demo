@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+app_home="${OPERAI_EYE_HOME:-$HOME/operai-eye}"
+config_path="${OPERAI_EYE_CONFIG:-$HOME/.config/operai-eye/config.toml}"
+edge_bin="$app_home/.venv/bin/operai-edge"
+
+if [[ ! -x "$edge_bin" ]]; then
+  echo "OperAI-EYE is not installed at $app_home" >&2
+  exit 1
+fi
+
+restore_production() {
+  systemctl --user start operai-eye.service >/dev/null 2>&1 || true
+}
+
+ui_pid=""
+
+stop_demo() {
+  trap - INT TERM
+  if [[ -n "$ui_pid" ]]; then
+    kill -TERM "$ui_pid" >/dev/null 2>&1 || true
+    wait "$ui_pid" 2>/dev/null || true
+  fi
+  exit 0
+}
+
+trap restore_production EXIT
+trap stop_demo INT TERM
+
+echo "Pausing unattended capture while the browser owns the camera..."
+systemctl --user stop operai-eye.service
+
+echo "Opening the live demo at http://127.0.0.1:8765"
+echo "Close this terminal or press Ctrl+C to restore 24/7 monitoring."
+"$edge_bin" --config "$config_path" ui --host 127.0.0.1 --port 8765 &
+ui_pid=$!
+wait "$ui_pid"
