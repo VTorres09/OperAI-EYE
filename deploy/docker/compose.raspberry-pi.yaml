@@ -1,0 +1,20 @@
+services:
+  app:
+    environment:
+      OPERAI_CAMERA_BACKEND: picamera2
+      HOME: /tmp
+    user: "${OPERAI_UID:-1000}:${OPERAI_GID:-1000}"
+    group_add:
+      - "${OPERAI_VIDEO_GID:-44}"
+      - "${OPERAI_RENDER_GID:-992}"
+    privileged: true
+    volumes:
+      - type: bind
+        source: ${OPERAI_STATE_PATH:-./edge_state}
+        target: /data
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /run/udev
+        target: /run/udev
+        read_only: true

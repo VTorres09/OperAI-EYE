@@ -201,6 +201,96 @@ class PredictionStore:
             "phase_counts": {row["phase"]: row["count"] for row in rows},
         }
 
+    def dashboard(self, *, hours: int = 24, limit: int = 20) -> dict[str, object]:
+        """Return a bounded, source-backed monitoring view of persisted bursts."""
+
+        if hours <= 0:
+            raise ValueError("hours must be positive")
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        since = datetime.now(UTC) - timedelta(hours=hours)
+        since_iso = _iso(since)
+        aggregate = self.connection.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN phase = 'ERROR' THEN 1 ELSE 0 END) AS errors,
+                SUM(CASE WHEN phase = 'UNKNOWN' THEN 1 ELSE 0 END) AS uncertain,
+                AVG(CASE WHEN phase != 'ERROR' THEN inference_ms END)
+                    AS average_inference_ms,
+                MAX(started_at) AS latest_started_at
+            FROM bursts
+            WHERE started_at >= ?
+            """,
+            (since_iso,),
+        ).fetchone()
+        counts = {
+            "IDLE": 0,
+            "PATIENT_IN_ROOM": 0,
+            "SURGERY_ACTIVE": 0,
+            "UNKNOWN": 0,
+            "ERROR": 0,
+        }
+        phase_rows = self.connection.execute(
+            """
+            SELECT phase, COUNT(*) AS count
+            FROM bursts
+            WHERE started_at >= ?
+            GROUP BY phase
+            """,
+            (since_iso,),
+        ).fetchall()
+        for row in phase_rows:
+            counts[str(row["phase"])] = int(row["count"])
+
+        recent_rows = self.connection.execute(
+            """
+            SELECT * FROM bursts
+            WHERE started_at >= ?
+            ORDER BY started_at DESC
+            LIMIT ?
+            """,
+            (since_iso, limit),
+        ).fetchall()
+        recent = [_decode_row(row) for row in recent_rows]
+        frames_by_burst: dict[str, list[dict[str, object]]] = {
+            str(row["id"]): [] for row in recent
+        }
+        if frames_by_burst:
+            placeholders = ", ".join("?" for _ in frames_by_burst)
+            frame_rows = self.connection.execute(
+                f"""
+                SELECT burst_id, position, captured_at, phase, confidence
+                FROM frames
+                WHERE burst_id IN ({placeholders})
+                ORDER BY burst_id, position
+                """,
+                tuple(frames_by_burst),
+            ).fetchall()
+            for frame in frame_rows:
+                frames_by_burst[str(frame["burst_id"])].append(
+                    {
+                        "position": int(frame["position"]),
+                        "captured_at": str(frame["captured_at"]),
+                        "phase": str(frame["phase"]),
+                        "confidence": float(frame["confidence"]),
+                    }
+                )
+        for row in recent:
+            row["frames"] = frames_by_burst[str(row["id"])]
+        return {
+            "database_path": str(self.database_path),
+            "generated_at": _iso(datetime.now(UTC)),
+            "window_hours": hours,
+            "total": int(aggregate["total"] or 0),
+            "errors": int(aggregate["errors"] or 0),
+            "uncertain": int(aggregate["uncertain"] or 0),
+            "average_inference_ms": aggregate["average_inference_ms"],
+            "latest_started_at": aggregate["latest_started_at"],
+            "phase_counts": counts,
+            "recent": recent,
+        }
+
     def prune_images(self, *, now: datetime | None = None) -> int:
         if not self.image_directory.exists():
             return 0

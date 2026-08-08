@@ -62,13 +62,32 @@ class Picamera2Source:
         if self.camera is None:
             raise RuntimeError("Camera has not been started")
         array = self.camera.capture_array("main")
-        return _rotate(Image.fromarray(array, mode="RGB"), self.config.rotation)
+        return _rotate(
+            _picamera_rgb888_to_image(array),
+            self.config.rotation,
+        )
 
     def close(self) -> None:
         if self.camera is not None:
             self.camera.stop()
             self.camera.close()
             self.camera = None
+
+
+def _picamera_rgb888_to_image(array: np.ndarray) -> Image.Image:
+    """Convert Picamera2's OpenCV-ordered RGB888 buffer for Pillow.
+
+    Picamera2 names the stream format using libcamera conventions, but an
+    ``RGB888`` capture array is byte-ordered BGR for OpenCV. Pillow expects
+    RGB channel order, so red and blue must be swapped explicitly.
+    """
+
+    if array.ndim != 3 or array.shape[2] != 3:
+        raise ValueError(
+            f"Expected an HxWx3 Picamera2 RGB888 array, got {array.shape}"
+        )
+    rgb = np.ascontiguousarray(array[:, :, ::-1])
+    return Image.fromarray(rgb, mode="RGB")
 
 
 class OpenCvSource:
