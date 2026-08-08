@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import threading
 import time
 from collections.abc import Sequence
@@ -19,12 +20,41 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from .config import EdgeConfig
 from .decision import FramePrediction, majority_vote
 from .inference import DinoOnnxClassifier
+from .service import EdgeService
 from .sources import create_camera_source
 from .storage import PredictionStore
 
 UI_DIRECTORY = Path(__file__).with_name("ui")
 MAX_IMAGE_BYTES = 6 * 1024 * 1024
 MAX_IMAGE_PIXELS = 24_000_000
+logger = logging.getLogger(__name__)
+
+
+class _SharedCameraSource:
+    """Expose runtime-locked captures to the background edge service."""
+
+    def __init__(self, runtime: "DashboardRuntime") -> None:
+        self.runtime = runtime
+
+    def start(self) -> None:
+        self.runtime.start_camera()
+
+    def capture(self) -> Image.Image:
+        return self.runtime.capture_pillow_frame()
+
+    def close(self) -> None:
+        return None
+
+
+class _LockedClassifier:
+    """Serialize browser and background inference through one ONNX session."""
+
+    def __init__(self, runtime: "DashboardRuntime") -> None:
+        self.runtime = runtime
+
+    def classify(self, images: Sequence[Image.Image]) -> list[FramePrediction]:
+        with self.runtime._inference_lock:
+            return self.runtime.classifier.classify(images)
 
 
 class DashboardRuntime:
@@ -60,6 +90,8 @@ class DashboardRuntime:
             self.source = create_camera_source(config.camera)
         self._camera_lock = threading.Lock()
         self._camera_started = False
+        self._background_stop = threading.Event()
+        self._background_thread: threading.Thread | None = None
 
     def public_config(self) -> dict[str, object]:
         service = self.config.service
@@ -81,12 +113,7 @@ class DashboardRuntime:
                 self._camera_started = True
 
     def capture_camera_frame(self) -> dict[str, object]:
-        if self.source is None:
-            raise RuntimeError("No server-managed camera is configured")
-        with self._camera_lock:
-            if not self._camera_started:
-                raise RuntimeError("The server-managed camera is not started")
-            image = self.source.capture().convert("RGB")
+        image = self.capture_pillow_frame()
         image.thumbnail((1280, 720), Image.Resampling.LANCZOS)
         buffer = BytesIO()
         image.save(
@@ -101,13 +128,73 @@ class DashboardRuntime:
             "height": image.height,
         }
 
+    def capture_pillow_frame(self) -> Image.Image:
+        if self.source is None:
+            raise RuntimeError("No server-managed camera is configured")
+        with self._camera_lock:
+            if not self._camera_started:
+                raise RuntimeError("The server-managed camera is not started")
+            return self.source.capture().convert("RGB")
+
     def stop_camera(self) -> None:
         if self.source is None:
+            return
+        if self._background_thread is not None and self._background_thread.is_alive():
             return
         with self._camera_lock:
             if self._camera_started:
                 self.source.close()
                 self._camera_started = False
+
+    def start_background_capture(self) -> None:
+        """Start the server-owned 24/7 observation loop when a camera exists."""
+
+        if self.source is None or self._background_thread is not None:
+            return
+        self.start_camera()
+        self._background_stop.clear()
+        self._background_thread = threading.Thread(
+            target=self._run_background_capture,
+            name="operai-eye-capture",
+            daemon=True,
+        )
+        self._background_thread.start()
+
+    def _run_background_capture(self) -> None:
+        background_store = PredictionStore(
+            self.config.storage.database_path,
+            image_directory=self.config.storage.image_directory,
+            retain_images=self.config.storage.retain_images,
+            retention_days=self.config.storage.retention_days,
+            jpeg_quality=self.config.storage.jpeg_quality,
+        )
+        service = EdgeService(
+            source=_SharedCameraSource(self),
+            classifier=_LockedClassifier(self),
+            store=background_store,
+            service_config=self.config.service,
+            decision_config=self.config.decision,
+        )
+        try:
+            if (
+                not self.config.service.run_immediately
+                and self._background_stop.wait(self.config.service.interval_seconds)
+            ):
+                return
+            next_cycle = time.monotonic()
+            while not self._background_stop.is_set():
+                delay = next_cycle - time.monotonic()
+                if delay > 0 and self._background_stop.wait(delay):
+                    break
+                try:
+                    service.run_once()
+                except Exception:
+                    logger.exception("Background camera observation failed")
+                next_cycle += self.config.service.interval_seconds
+                while next_cycle <= time.monotonic():
+                    next_cycle += self.config.service.interval_seconds
+        finally:
+            background_store.close()
 
     def classify_encoded_images(
         self, encoded_images: Sequence[str]
@@ -155,7 +242,14 @@ class DashboardRuntime:
         }
 
     def close(self) -> None:
-        self.stop_camera()
+        self._background_stop.set()
+        if self._background_thread is not None:
+            self._background_thread.join(timeout=20)
+            self._background_thread = None
+        with self._camera_lock:
+            if self.source is not None and self._camera_started:
+                self.source.close()
+                self._camera_started = False
         if self._owns_store:
             self.store.close()
 
@@ -211,8 +305,11 @@ def create_dashboard_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        yield
-        runtime.close()
+        runtime.start_background_capture()
+        try:
+            yield
+        finally:
+            runtime.close()
 
     app = FastAPI(title="OperAI-EYE live camera", lifespan=lifespan)
     app.state.dashboard_runtime = runtime
@@ -239,6 +336,14 @@ def create_dashboard_app(
                 status_code=503, detail="Inference backend is not ready"
             )
         return {"status": "ready"}
+
+    @app.get("/api/history")
+    async def observation_history(hours: int = 24, limit: int = 20):
+        if not 1 <= hours <= 24 * 366:
+            raise HTTPException(status_code=400, detail="hours must be in [1, 8784]")
+        if not 1 <= limit <= 100:
+            raise HTTPException(status_code=400, detail="limit must be in [1, 100]")
+        return runtime.store.dashboard(hours=hours, limit=limit)
 
     @app.post("/api/camera/start")
     def camera_start():

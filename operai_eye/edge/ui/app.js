@@ -15,6 +15,9 @@ const state = {
   cycle: 0,
   timer: null,
   previewTimer: null,
+  historyTimer: null,
+  serverObservationTimer: null,
+  latestBurstId: null,
 }
 
 const $ = (selector) => document.querySelector(selector)
@@ -30,6 +33,16 @@ const phaseInfo = {
   PATIENT_IN_ROOM: { className: 'patient', icon: '●', label: 'PATIENT IN ROOM' },
   SURGERY_ACTIVE: { className: 'active', icon: '◆', label: 'SURGERY ACTIVE' },
   UNKNOWN: { className: 'unknown', icon: '?', label: 'UNKNOWN' },
+  ERROR: { className: 'error', icon: '!', label: 'ERROR' },
+}
+
+const historyPhases = ['IDLE', 'PATIENT_IN_ROOM', 'SURGERY_ACTIVE', 'UNKNOWN', 'ERROR']
+const phaseColors = {
+  IDLE: 'var(--blue)',
+  PATIENT_IN_ROOM: 'var(--lime)',
+  SURGERY_ACTIVE: 'var(--orange)',
+  UNKNOWN: 'var(--purple)',
+  ERROR: '#ff5f57',
 }
 
 function sleep(milliseconds) {
@@ -118,7 +131,7 @@ function renderPredictions(images, predictions) {
   })
 }
 
-function renderVote(result) {
+function renderVote(result, refreshHistory = true) {
   const vote = result.vote
   const info = phaseInfo[vote.phase] || phaseInfo.UNKNOWN
   const resultHero = $('#resultHero')
@@ -142,6 +155,120 @@ function renderVote(result) {
     row.querySelector('.vote-label strong').textContent = count
     row.querySelector('.vote-track i').style.width = `${(count / state.config.burst_size) * 100}%`
   })
+  if (refreshHistory) loadHistory()
+}
+
+function renderStoredObservation(observation, total) {
+  if (!observation || observation.id === state.latestBurstId) return
+  state.latestBurstId = observation.id
+  state.cycle = total
+  renderEmptyFrames()
+  observation.frames.forEach((prediction, index) => {
+    const frame = document.querySelector(`.frame[data-index="${index}"]`)
+    if (!frame) return
+    const info = phaseInfo[prediction.phase] || phaseInfo.UNKNOWN
+    const color = phaseColors[prediction.phase] || phaseColors.UNKNOWN
+    frame.classList.add('captured', 'stored')
+    frame.style.setProperty('--frame-color', color)
+    frame.innerHTML = `
+      <span class="stored-frame-phase">${info.label}</span>
+      <span class="frame-number">${index + 1}</span>
+      <span class="frame-prediction">${info.label} · ${percentage(prediction.confidence)}</span>
+    `
+  })
+  $('#frameCount').textContent = `${observation.captures_succeeded} / ${observation.captures_expected}`
+  renderVote({
+    completed_at: observation.completed_at,
+    inference_ms: observation.inference_ms || 0,
+    vote: {
+      phase: observation.phase,
+      confidence: observation.confidence,
+      vote_fraction: observation.vote_fraction,
+      votes: observation.votes,
+      uncertain_reason: observation.uncertain_reason,
+    },
+  }, false)
+  let nextCapture = new Date(observation.started_at).getTime() + state.config.interval_seconds * 1000
+  while (nextCapture <= Date.now()) nextCapture += state.config.interval_seconds * 1000
+  state.nextBurstAt = nextCapture
+}
+
+function formatObservationTime(value) {
+  if (!value) return '—'
+  return new Date(value).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function renderHistory(data) {
+  const total = data.total || 0
+  const surgery = data.phase_counts.SURGERY_ACTIVE || 0
+  const issues = (data.uncertain || 0) + (data.errors || 0)
+  $('#historyTotal').textContent = String(total)
+  $('#historySurgery').textContent = String(surgery)
+  $('#historySurgeryShare').textContent = total ? `${percentage(surgery / total)} of observations` : '— of observations'
+  $('#historyIssues').textContent = String(issues)
+  $('#historyLatency').textContent = Number.isFinite(data.average_inference_ms) ? `${Math.round(data.average_inference_ms)} ms` : '—'
+  $('#historyWindowLabel').textContent = data.window_hours === 24 ? 'last 24 hours' : `last ${Math.round(data.window_hours / 24)} days`
+  $('#historyFreshness').textContent = `SQLite updated ${formatObservationTime(data.generated_at)}`
+
+  $('#historyPhases').innerHTML = historyPhases.map((phase) => {
+    const count = data.phase_counts[phase] || 0
+    const share = total ? (count / total) * 100 : 0
+    const label = phaseInfo[phase]?.label || phase
+    return `
+      <div class="history-phase" style="--phase-color: ${phaseColors[phase]}">
+        <div class="history-phase-label">
+          <span class="phase-dot"></span>
+          <span>${label}</span>
+          <strong>${count}</strong>
+        </div>
+        <div class="history-phase-track"><i style="width: ${share}%"></i></div>
+      </div>
+    `
+  }).join('')
+
+  if (!data.recent.length) {
+    $('#historyRows').innerHTML = '<tr><td colspan="5" class="history-empty">No observations in this window.</td></tr>'
+    return
+  }
+  $('#historyRows').innerHTML = data.recent.map((observation) => {
+    const info = phaseInfo[observation.phase] || phaseInfo.UNKNOWN
+    const color = phaseColors[observation.phase] || phaseColors.UNKNOWN
+    const confidence = observation.confidence == null ? '—' : percentage(observation.confidence)
+    const inference = observation.inference_ms == null ? '—' : `${Math.round(observation.inference_ms)} ms`
+    return `
+      <tr>
+        <td>${formatObservationTime(observation.started_at)}</td>
+        <td><span class="phase-pill" style="--phase-color: ${color}">${info.label}</span></td>
+        <td>${confidence}</td>
+        <td>${observation.captures_succeeded} / ${observation.captures_expected}</td>
+        <td>${inference}</td>
+      </tr>
+    `
+  }).join('')
+
+  if (state.config.capture_mode === 'server') {
+    renderStoredObservation(data.recent[0], data.total)
+  }
+}
+
+async function loadHistory() {
+  const hours = Number($('#historyWindow').value || 24)
+  try {
+    const response = await fetch(`/api/history?hours=${hours}&limit=20`, { cache: 'no-store' })
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.detail || `History request failed (${response.status})`)
+    renderHistory(result)
+  } catch (error) {
+    $('#historyFreshness').textContent = 'SQLite unavailable'
+    $('#historyRows').innerHTML = '<tr><td colspan="5" class="history-empty"></td></tr>'
+    $('#historyRows .history-empty').textContent = error.message || String(error)
+  }
 }
 
 async function runBurst() {
@@ -210,6 +337,7 @@ async function startCamera() {
     cameraCard.classList.add('active', 'server-mode')
     await fetchServerFrame()
     state.previewTimer = window.setInterval(refreshServerPreview, 500)
+    state.serverObservationTimer = window.setInterval(loadHistory, 3000)
   } else {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('Camera access requires localhost or a secure HTTPS connection.')
@@ -234,7 +362,8 @@ async function startCamera() {
   setConnection(true)
   window.clearInterval(state.countdownTimer)
   state.countdownTimer = window.setInterval(updateCountdown, 250)
-  runBurst()
+  if (state.config.capture_mode === 'browser') runBurst()
+  else loadHistory()
 }
 
 async function refreshServerPreview() {
@@ -256,17 +385,11 @@ async function stopCamera() {
   window.clearTimeout(state.timer)
   window.clearInterval(state.countdownTimer)
   window.clearInterval(state.previewTimer)
+  window.clearInterval(state.serverObservationTimer)
   state.stream?.getTracks().forEach((track) => track.stop())
   state.stream = null
   video.srcObject = null
   cameraImage.removeAttribute('src')
-  if (state.config.capture_mode === 'server') {
-    try {
-      await fetch('/api/camera/stop', { method: 'POST' })
-    } catch (_) {
-      // The UI still needs to reset if the server disappears during shutdown.
-    }
-  }
   cameraCard.classList.remove('active', 'capturing', 'browser-mode', 'server-mode')
   cameraButton.classList.remove('active')
   cameraButton.lastElementChild.textContent = 'Enable camera'
@@ -302,6 +425,10 @@ async function initialize() {
     showToast(error.message || String(error))
   }
   renderEmptyFrames()
+  await loadHistory()
+  window.clearInterval(state.historyTimer)
+  state.historyTimer = window.setInterval(loadHistory, 15000)
 }
 
+$('#historyWindow').addEventListener('change', loadHistory)
 initialize()

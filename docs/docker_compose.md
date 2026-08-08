@@ -8,7 +8,9 @@ The compact deployment runs OperAI-EYE as one self-contained service:
 - SQLite prediction history is stored in a persistent Docker volume.
 
 There is no Triton, CUDA, Nginx, cloud inference, or external image transfer.
-The browser owns the camera and sends the five captured frames to the local app.
+On desktops, the browser owns the camera and sends the five captured frames to
+the local app. The Raspberry Pi override uses Picamera2 inside the container so
+the CSI camera does not depend on Chromium webcam support.
 
 ## Prerequisites
 
@@ -58,6 +60,10 @@ docker compose down
 SQLite history is kept in the `operai-state` named volume. To intentionally
 delete that volume too, use `docker compose down --volumes`.
 
+The dashboard includes a SQLite-backed capture history below the live view. It
+shows observation counts, verdict distribution, inference latency, and recent
+bursts. Frame predictions and verdicts are retained; captured images are not.
+
 ## CPU and Apple GPU behavior
 
 The container installs the CPU-only `onnxruntime` package. That package supports
@@ -95,7 +101,7 @@ docker compose up -d --force-recreate app
 INT8 can reduce model memory and CPU latency, but the benefit and accuracy
 impact should be measured on the actual Raspberry Pi.
 
-## Raspberry Pi notes
+## Raspberry Pi deployment
 
 Recommended starting point:
 
@@ -104,13 +110,47 @@ Recommended starting point:
 - fast SSD storage rather than a small SD card
 - active cooling
 
+Install Docker Engine and the Compose plugin using Docker's Debian instructions,
+then create `.env` with the Pi's paths and numeric IDs:
+
+```bash
+sudo deploy/raspberry-pi/install-docker-debian
+```
+
+The repository installer follows Docker's official Debian apt-repository
+method, enables the daemon at boot, and adds the invoking user to the `docker`
+group. Reconnect after it completes so the new group membership is active.
+
+```dotenv
+OPERAI_PORT=8765
+OPERAI_MODEL_PATH=./models/operai_eye_dinov3.int8.onnx
+OPERAI_STATE_PATH=/home/vinicius/.local/state/operai-eye
+OPERAI_UID=1000
+OPERAI_GID=1000
+OPERAI_VIDEO_GID=44
+OPERAI_RENDER_GID=992
+```
+
+Build and start the Pi-specific deployment:
+
+```bash
+docker compose \
+  -f compose.yaml \
+  -f deploy/docker/compose.raspberry-pi.yaml \
+  up -d --build
+```
+
+The override exposes the Raspberry Pi camera stack to the app, selects
+Picamera2, and bind-mounts the SQLite state directory. The base Compose service
+uses `restart: unless-stopped`, so Docker restarts the app after a process crash
+or host reboot. The Docker daemon itself must also be enabled at boot.
+
 Tune `intra_op_threads` in `deploy/docker/config.toml` for the target Pi. Four
 threads is a sensible Pi 5 starting point. A single five-image request per minute
 does not need a separate inference scheduler or dynamic batching server.
 
-Camera APIs work on `localhost` without TLS. If the UI is opened through a Pi's
-LAN IP, browsers generally require HTTPS before allowing camera access. Put an
-HTTPS reverse proxy in front of port 8080 for remote access.
+The Pi-native camera API is served by the local container and does not require a
+browser camera permission prompt.
 
 ## Configuration
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import ExitStack
 from dataclasses import replace
@@ -39,7 +40,7 @@ from operai_eye.edge.inference import (
     sigmoid,
 )
 from operai_eye.edge.service import EdgeService
-from operai_eye.edge.sources import DirectorySource
+from operai_eye.edge.sources import DirectorySource, _picamera_rgb888_to_image
 from operai_eye.edge.storage import PredictionStore
 
 
@@ -143,6 +144,11 @@ class DecisionTest(unittest.TestCase):
 
 
 class PreprocessingTest(unittest.TestCase):
+    def test_picamera_rgb888_buffer_swaps_opencv_red_and_blue_channels(self) -> None:
+        bgr = np.asarray([[[255, 20, 10]]], dtype=np.uint8)
+        image = _picamera_rgb888_to_image(bgr)
+        self.assertEqual(image.getpixel((0, 0)), (10, 20, 255))
+
     def test_preprocess_image_has_expected_shape_and_dtype(self) -> None:
         image = Image.new("RGB", (640, 360), (255, 0, 0))
         tensor = preprocess_image(image)
@@ -297,6 +303,40 @@ class StorageAndServiceTest(unittest.TestCase):
             store.close()
             self.assertEqual(latest["phase"], "ERROR")
             self.assertEqual(latest["captures_succeeded"], 2)
+
+    def test_database_dashboard_summarizes_verdicts_without_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = PredictionStore(
+                root / "predictions.sqlite3",
+                image_directory=root / "images",
+                retain_images="none",
+            )
+            source = FakeSource()
+            classifier = FakeClassifier(
+                [make_prediction("SURGERY_ACTIVE") for _ in range(5)]
+            )
+            service = EdgeService(
+                source=source,
+                classifier=classifier,
+                store=store,
+                service_config=replace(ServiceConfig(), capture_spacing_seconds=0.0),
+                decision_config=DecisionConfig(),
+            )
+            result = service.run_once()
+            dashboard = store.dashboard(hours=1, limit=10)
+            image_paths = store.connection.execute(
+                "SELECT image_path FROM frames"
+            ).fetchall()
+            store.close()
+
+            self.assertEqual(dashboard["total"], 1)
+            self.assertEqual(dashboard["phase_counts"]["SURGERY_ACTIVE"], 1)
+            self.assertEqual(dashboard["recent"][0]["id"], result.burst_id)
+            self.assertEqual(len(dashboard["recent"][0]["frames"]), 5)
+            self.assertEqual(len(dashboard["recent"]), 1)
+            self.assertTrue(all(row[0] is None for row in image_paths))
+            self.assertFalse((root / "images").exists())
 
     def test_offline_loop_stops_at_maximum_cycles(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -467,6 +507,43 @@ class DashboardTest(unittest.TestCase):
             self.assertEqual(runtime.public_config()["capture_mode"], "browser")
             store.close()
 
+    def test_server_dashboard_captures_without_an_open_browser(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = EdgeConfig(
+                service=replace(ServiceConfig(), capture_spacing_seconds=0.0),
+                storage=StorageConfig(
+                    database_path=root / "predictions.sqlite3",
+                    image_directory=root / "images",
+                    retain_images="none",
+                ),
+            )
+            store = PredictionStore(
+                config.storage.database_path,
+                image_directory=config.storage.image_directory,
+            )
+            source = FakeSource(count=5)
+            runtime = DashboardRuntime(
+                config,
+                classifier=FakeClassifier(
+                    [make_prediction("SURGERY_ACTIVE") for _ in range(5)]
+                ),
+                store=store,
+                source=source,
+            )
+            runtime.start_background_capture()
+            deadline = time.monotonic() + 2
+            while store.latest() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            latest = store.latest()
+            runtime.close()
+            store.close()
+
+            self.assertIsNotNone(latest)
+            self.assertEqual(latest["phase"], "SURGERY_ACTIVE")
+            self.assertFalse(source.started)
+            self.assertFalse((root / "images").exists())
+
     def test_camera_endpoints_are_exposed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -492,6 +569,7 @@ class DashboardTest(unittest.TestCase):
             self.assertIn("/api/camera/start", paths)
             self.assertIn("/api/camera/frame", paths)
             self.assertIn("/api/camera/stop", paths)
+            self.assertIn("/api/history", paths)
 
 
 class DirectorySourceTest(unittest.TestCase):
