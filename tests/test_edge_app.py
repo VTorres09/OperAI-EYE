@@ -9,7 +9,7 @@ import time
 import unittest
 from contextlib import ExitStack
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -338,6 +338,49 @@ class StorageAndServiceTest(unittest.TestCase):
             self.assertTrue(all(row[0] is None for row in image_paths))
             self.assertFalse((root / "images").exists())
 
+    def test_daily_timeline_uses_the_viewers_local_calendar_day(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = PredictionStore(
+                root / "predictions.sqlite3",
+                image_directory=root / "images",
+                retain_images="none",
+            )
+
+            def record(at: datetime, phase: str) -> None:
+                predictions = [make_prediction(phase) for _ in range(5)]
+                store.record_success(
+                    started_at=at,
+                    completed_at=at + timedelta(seconds=1),
+                    captured_at=[at] * 5,
+                    images=[Image.new("RGB", (2, 2)) for _ in range(5)],
+                    predictions=predictions,
+                    vote=majority_vote(predictions),
+                    captures_expected=5,
+                    inference_ms=25.0,
+                )
+
+            # Browser UTC-03 day boundaries are 03:00 UTC to 03:00 UTC.
+            record(datetime(2026, 8, 13, 2, 59, tzinfo=UTC), "IDLE")
+            record(datetime(2026, 8, 13, 3, 15, tzinfo=UTC), "PATIENT_IN_ROOM")
+            record(datetime(2026, 8, 14, 2, 30, tzinfo=UTC), "SURGERY_ACTIVE")
+            record(datetime(2026, 8, 14, 3, 0, tzinfo=UTC), "IDLE")
+
+            timeline = store.daily_timeline(
+                date(2026, 8, 13), timezone_offset_minutes=180
+            )
+            store.close()
+
+            self.assertEqual(timeline["total"], 2)
+            self.assertEqual(timeline["phase_counts"]["PATIENT_IN_ROOM"], 1)
+            self.assertEqual(timeline["phase_counts"]["SURGERY_ACTIVE"], 1)
+            self.assertEqual(
+                [row["second_of_day"] for row in timeline["observations"]],
+                [15 * 60, 23 * 3600 + 30 * 60],
+            )
+            self.assertEqual(timeline["recent"][0]["phase"], "SURGERY_ACTIVE")
+            self.assertFalse(timeline["truncated"])
+
     def test_offline_loop_stops_at_maximum_cycles(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -570,6 +613,7 @@ class DashboardTest(unittest.TestCase):
             self.assertIn("/api/camera/frame", paths)
             self.assertIn("/api/camera/stop", paths)
             self.assertIn("/api/history", paths)
+            self.assertIn("/api/history/day", paths)
 
 
 class DirectorySourceTest(unittest.TestCase):
