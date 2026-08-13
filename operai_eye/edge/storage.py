@@ -6,7 +6,7 @@ import json
 import sqlite3
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from PIL import Image
@@ -289,6 +289,111 @@ class PredictionStore:
             "latest_started_at": aggregate["latest_started_at"],
             "phase_counts": counts,
             "recent": recent,
+        }
+
+    def daily_timeline(
+        self,
+        day: date,
+        *,
+        timezone_offset_minutes: int = 0,
+        recent_limit: int = 20,
+        observation_limit: int = 10_000,
+    ) -> dict[str, object]:
+        """Return one local calendar day's verdicts at observation grain.
+
+        ``timezone_offset_minutes`` follows the browser ``Date.getTimezoneOffset``
+        convention: UTC minus local time. Persisted timestamps remain UTC while the
+        query boundaries and visible times follow the dashboard viewer's local day.
+        """
+
+        if not -14 * 60 <= timezone_offset_minutes <= 14 * 60:
+            raise ValueError("timezone_offset_minutes must be in [-840, 840]")
+        if not 1 <= recent_limit <= 100:
+            raise ValueError("recent_limit must be in [1, 100]")
+        if not 1 <= observation_limit <= 10_000:
+            raise ValueError("observation_limit must be in [1, 10000]")
+
+        local_timezone = timezone(-timedelta(minutes=timezone_offset_minutes))
+        local_start = datetime.combine(day, time.min, tzinfo=local_timezone)
+        local_end = local_start + timedelta(days=1)
+        start_iso = _iso(local_start)
+        end_iso = _iso(local_end)
+
+        aggregate = self.connection.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN phase = 'ERROR' THEN 1 ELSE 0 END) AS errors,
+                SUM(CASE WHEN phase = 'UNKNOWN' THEN 1 ELSE 0 END) AS uncertain,
+                AVG(CASE WHEN phase != 'ERROR' THEN inference_ms END)
+                    AS average_inference_ms,
+                MIN(started_at) AS first_started_at,
+                MAX(started_at) AS latest_started_at
+            FROM bursts
+            WHERE started_at >= ? AND started_at < ?
+            """,
+            (start_iso, end_iso),
+        ).fetchone()
+        counts = {
+            "IDLE": 0,
+            "PATIENT_IN_ROOM": 0,
+            "SURGERY_ACTIVE": 0,
+            "UNKNOWN": 0,
+            "ERROR": 0,
+        }
+        phase_rows = self.connection.execute(
+            """
+            SELECT phase, COUNT(*) AS count
+            FROM bursts
+            WHERE started_at >= ? AND started_at < ?
+            GROUP BY phase
+            """,
+            (start_iso, end_iso),
+        ).fetchall()
+        for row in phase_rows:
+            counts[str(row["phase"])] = int(row["count"])
+
+        rows = self.connection.execute(
+            """
+            SELECT * FROM bursts
+            WHERE started_at >= ? AND started_at < ?
+            ORDER BY started_at ASC
+            LIMIT ?
+            """,
+            (start_iso, end_iso, observation_limit),
+        ).fetchall()
+        observations: list[dict[str, object]] = []
+        for row in rows:
+            observation = _decode_row(row)
+            local_started_at = datetime.fromisoformat(
+                str(observation["started_at"])
+            ).astimezone(local_timezone)
+            observation["local_started_at"] = local_started_at.isoformat()
+            observation["second_of_day"] = (
+                local_started_at.hour * 3600
+                + local_started_at.minute * 60
+                + local_started_at.second
+            )
+            observations.append(observation)
+
+        total = int(aggregate["total"] or 0)
+        return {
+            "database_path": str(self.database_path),
+            "generated_at": _iso(datetime.now(UTC)),
+            "date": day.isoformat(),
+            "timezone_offset_minutes": timezone_offset_minutes,
+            "start_utc": start_iso,
+            "end_utc": end_iso,
+            "total": total,
+            "errors": int(aggregate["errors"] or 0),
+            "uncertain": int(aggregate["uncertain"] or 0),
+            "average_inference_ms": aggregate["average_inference_ms"],
+            "first_started_at": aggregate["first_started_at"],
+            "latest_started_at": aggregate["latest_started_at"],
+            "phase_counts": counts,
+            "observations": observations,
+            "recent": list(reversed(observations[-recent_limit:])),
+            "truncated": total > len(observations),
         }
 
     def prune_images(self, *, now: datetime | None = None) -> int:

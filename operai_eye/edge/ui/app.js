@@ -18,6 +18,7 @@ const state = {
   historyTimer: null,
   serverObservationTimer: null,
   latestBurstId: null,
+  selectedDate: null,
 }
 
 const $ = (selector) => document.querySelector(selector)
@@ -204,6 +205,113 @@ function formatObservationTime(value) {
   })
 }
 
+function localDateValue(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function formatSelectedDate(value) {
+  if (!value) return 'selected day'
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function formatClockFromSeconds(seconds) {
+  const bounded = Math.max(0, Math.min(86399, Math.round(seconds)))
+  const hours = Math.floor(bounded / 3600)
+  const minutes = Math.floor((bounded % 3600) / 60)
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+}
+
+function buildWorkflowSegments(observations) {
+  const interval = Math.max(1, state.config.interval_seconds)
+  const maximumContinuousGap = Math.max(interval * 2.5, 150)
+  const segments = []
+
+  observations.forEach((observation) => {
+    const second = Number(observation.second_of_day)
+    if (!Number.isFinite(second)) return
+    const previous = segments.at(-1)
+    if (
+      previous
+      && previous.phase === observation.phase
+      && second - previous.lastSecond <= maximumContinuousGap
+    ) {
+      previous.end = Math.min(86400, second + interval)
+      previous.lastSecond = second
+      previous.count += 1
+      previous.confidenceTotal += Number(observation.confidence) || 0
+      return
+    }
+    segments.push({
+      phase: observation.phase,
+      start: second,
+      end: Math.min(86400, second + interval),
+      lastSecond: second,
+      count: 1,
+      confidenceTotal: Number(observation.confidence) || 0,
+    })
+  })
+  return segments
+}
+
+function renderWorkflowTimeline(data) {
+  const observations = data.observations || []
+  const segments = buildWorkflowSegments(observations)
+  const track = $('#workflowTrack')
+  const empty = $('#workflowEmpty')
+
+  track.querySelectorAll('.workflow-segment').forEach((segment) => segment.remove())
+  empty.hidden = observations.length > 0
+  empty.textContent = data.truncated
+    ? 'The daily timeline is truncated to the first 10,000 observations.'
+    : 'No observations were recorded on this day.'
+
+  segments.forEach((segment) => {
+    const info = phaseInfo[segment.phase] || phaseInfo.UNKNOWN
+    const color = phaseColors[segment.phase] || phaseColors.UNKNOWN
+    const averageConfidence = segment.confidenceTotal / segment.count
+    const element = document.createElement('button')
+    element.type = 'button'
+    element.className = 'workflow-segment'
+    element.style.setProperty('--phase-color', color)
+    element.style.left = `${(segment.start / 86400) * 100}%`
+    element.style.width = `${Math.max(((segment.end - segment.start) / 86400) * 100, 0.18)}%`
+    const timeRange = `${formatClockFromSeconds(segment.start)}–${formatClockFromSeconds(segment.end)}`
+    element.title = `${info.label} · ${timeRange} · ${segment.count} observation${segment.count === 1 ? '' : 's'} · ${percentage(averageConfidence)} average confidence`
+    element.setAttribute('aria-label', element.title)
+    track.appendChild(element)
+  })
+
+  $('#workflowLegend').innerHTML = historyPhases.map((phase) => `
+    <span style="--phase-color: ${phaseColors[phase]}">
+      <i></i>${phaseInfo[phase]?.label || phase}<strong>${data.phase_counts[phase] || 0}</strong>
+    </span>
+  `).join('')
+
+  if (!observations.length) {
+    $('#workflowSummary').innerHTML = '<span>No class transitions to show.</span>'
+    return
+  }
+  const transitions = observations.slice(1).reduce((count, observation, index) => (
+    count + (observation.phase !== observations[index].phase ? 1 : 0)
+  ), 0)
+  const first = observations[0]
+  const last = observations.at(-1)
+  $('#workflowSummary').innerHTML = `
+    <span><strong>${formatClockFromSeconds(first.second_of_day)}</strong> first observation</span>
+    <span><strong>${transitions}</strong> class transition${transitions === 1 ? '' : 's'}</span>
+    <span><strong>${formatClockFromSeconds(last.second_of_day)}</strong> latest observation</span>
+  `
+}
+
 function renderHistory(data) {
   const total = data.total || 0
   const surgery = data.phase_counts.SURGERY_ACTIVE || 0
@@ -213,8 +321,10 @@ function renderHistory(data) {
   $('#historySurgeryShare').textContent = total ? `${percentage(surgery / total)} of observations` : '— of observations'
   $('#historyIssues').textContent = String(issues)
   $('#historyLatency').textContent = Number.isFinite(data.average_inference_ms) ? `${Math.round(data.average_inference_ms)} ms` : '—'
-  $('#historyWindowLabel').textContent = data.window_hours === 24 ? 'last 24 hours' : `last ${Math.round(data.window_hours / 24)} days`
+  $('#historyWindowLabel').textContent = formatSelectedDate(data.date)
   $('#historyFreshness').textContent = `SQLite updated ${formatObservationTime(data.generated_at)}`
+  $('#workflowSubtitle').textContent = `${formatSelectedDate(data.date)} · local browser time · persisted five-frame majority verdicts`
+  renderWorkflowTimeline(data)
 
   $('#historyPhases').innerHTML = historyPhases.map((phase) => {
     const count = data.phase_counts[phase] || 0
@@ -233,7 +343,7 @@ function renderHistory(data) {
   }).join('')
 
   if (!data.recent.length) {
-    $('#historyRows').innerHTML = '<tr><td colspan="5" class="history-empty">No observations in this window.</td></tr>'
+    $('#historyRows').innerHTML = '<tr><td colspan="5" class="history-empty">No observations on this day.</td></tr>'
     return
   }
   $('#historyRows').innerHTML = data.recent.map((observation) => {
@@ -252,20 +362,26 @@ function renderHistory(data) {
     `
   }).join('')
 
-  if (state.config.capture_mode === 'server') {
-    renderStoredObservation(data.recent[0], data.total)
-  }
 }
 
 async function loadHistory() {
-  const hours = Number($('#historyWindow').value || 24)
+  const date = $('#historyDate').value || localDateValue()
+  state.selectedDate = date
+  const timezoneOffset = new Date().getTimezoneOffset()
   try {
-    const response = await fetch(`/api/history?hours=${hours}&limit=20`, { cache: 'no-store' })
+    const response = await fetch(`/api/history/day?date=${encodeURIComponent(date)}&timezone_offset_minutes=${timezoneOffset}&limit=20`, { cache: 'no-store' })
     const result = await response.json()
     if (!response.ok) throw new Error(result.detail || `History request failed (${response.status})`)
     renderHistory(result)
+    if (state.config.capture_mode === 'server') {
+      const latestResponse = await fetch('/api/history?hours=24&limit=1', { cache: 'no-store' })
+      const latest = await latestResponse.json()
+      if (latestResponse.ok && latest.recent.length) renderStoredObservation(latest.recent[0], latest.total)
+    }
   } catch (error) {
     $('#historyFreshness').textContent = 'SQLite unavailable'
+    $('#workflowEmpty').hidden = false
+    $('#workflowEmpty').textContent = error.message || String(error)
     $('#historyRows').innerHTML = '<tr><td colspan="5" class="history-empty"></td></tr>'
     $('#historyRows .history-empty').textContent = error.message || String(error)
   }
@@ -424,11 +540,19 @@ async function initialize() {
   } catch (error) {
     showToast(error.message || String(error))
   }
+  const today = localDateValue()
+  $('#historyDate').value = today
+  $('#historyDate').max = today
+  state.selectedDate = today
   renderEmptyFrames()
   await loadHistory()
   window.clearInterval(state.historyTimer)
   state.historyTimer = window.setInterval(loadHistory, 15000)
 }
 
-$('#historyWindow').addEventListener('change', loadHistory)
+$('#historyDate').addEventListener('change', loadHistory)
+$('#historyToday').addEventListener('click', () => {
+  $('#historyDate').value = localDateValue()
+  loadHistory()
+})
 initialize()

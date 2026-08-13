@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#090b0f" />
     <title>OperAI-EYE · Live</title>
-    <link rel="stylesheet" href="/assets/app.css?v=4" />
+    <link rel="stylesheet" href="/assets/app.css?v=5" />
   </head>
   <body>
     <div class="app-shell">
@@ -131,21 +131,37 @@
         <section class="history-card" aria-labelledby="historyTitle">
           <div class="section-heading history-heading">
             <div>
-              <span class="eyebrow">SQLite observation log</span>
-              <h2 id="historyTitle">Capture history</h2>
+              <span class="eyebrow">SQLite daily workflow</span>
+              <h2 id="historyTitle">Operating room timeline</h2>
             </div>
             <div class="history-controls">
-              <label for="historyWindow">Window</label>
-              <select id="historyWindow">
-                <option value="24">Last 24 hours</option>
-                <option value="168">Last 7 days</option>
-                <option value="720">Last 30 days</option>
-              </select>
+              <label for="historyDate">Day</label>
+              <input id="historyDate" type="date" aria-label="Select workflow day" />
+              <button class="secondary-button" id="historyToday" type="button">Today</button>
             </div>
           </div>
 
+          <article class="workflow-card" aria-labelledby="workflowTitle">
+            <div class="workflow-header">
+              <div>
+                <h3 id="workflowTitle">Classes detected by time of day</h3>
+                <p id="workflowSubtitle">Each interval represents a persisted five-frame majority verdict.</p>
+              </div>
+              <div class="workflow-legend" id="workflowLegend" aria-label="Workflow class legend"></div>
+            </div>
+            <div class="workflow-chart" id="workflowChart">
+              <div class="workflow-track" id="workflowTrack" role="img" aria-label="Daily class detection timeline">
+                <div class="workflow-empty" id="workflowEmpty">Loading daily observations…</div>
+              </div>
+              <div class="workflow-axis" aria-hidden="true">
+                <span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>24:00</span>
+              </div>
+            </div>
+            <div class="workflow-summary" id="workflowSummary" aria-live="polite"></div>
+          </article>
+
           <div class="history-metrics" aria-label="Observation summary">
-            <div><span>Observations</span><strong id="historyTotal">—</strong><small id="historyWindowLabel">last 24 hours</small></div>
+            <div><span>Observations</span><strong id="historyTotal">—</strong><small id="historyWindowLabel">selected day</small></div>
             <div><span>Surgery active</span><strong id="historySurgery">—</strong><small id="historySurgeryShare">— of observations</small></div>
             <div><span>Uncertain / errors</span><strong id="historyIssues">—</strong><small>requires review</small></div>
             <div><span>Average inference</span><strong id="historyLatency">—</strong><small>successful bursts</small></div>
@@ -162,7 +178,7 @@
 
             <article class="recent-observations">
               <div class="history-subheading">
-                <h3>Recent observations</h3>
+                <h3>Latest on selected day</h3>
                 <span>Images are not retained</span>
               </div>
               <div class="history-table-scroll">
@@ -189,6 +205,6 @@
 
     <div class="toast" id="toast" role="alert"></div>
     <canvas id="captureCanvas" hidden></canvas>
-    <script src="/assets/app.js?v=4" defer></script>
+    <script src="/assets/app.js?v=5" defer></script>
   </body>
 </html>

@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
+from datetime import date as Date
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 class _SharedCameraSource:
     """Expose runtime-locked captures to the background edge service."""
 
-    def __init__(self, runtime: "DashboardRuntime") -> None:
+    def __init__(self, runtime: DashboardRuntime) -> None:
         self.runtime = runtime
 
     def start(self) -> None:
@@ -49,7 +50,7 @@ class _SharedCameraSource:
 class _LockedClassifier:
     """Serialize browser and background inference through one ONNX session."""
 
-    def __init__(self, runtime: "DashboardRuntime") -> None:
+    def __init__(self, runtime: DashboardRuntime) -> None:
         self.runtime = runtime
 
     def classify(self, images: Sequence[Image.Image]) -> list[FramePrediction]:
@@ -176,9 +177,8 @@ class DashboardRuntime:
             decision_config=self.config.decision,
         )
         try:
-            if (
-                not self.config.service.run_immediately
-                and self._background_stop.wait(self.config.service.interval_seconds)
+            if not self.config.service.run_immediately and self._background_stop.wait(
+                self.config.service.interval_seconds
             ):
                 return
             next_cycle = time.monotonic()
@@ -344,6 +344,27 @@ def create_dashboard_app(
         if not 1 <= limit <= 100:
             raise HTTPException(status_code=400, detail="limit must be in [1, 100]")
         return runtime.store.dashboard(hours=hours, limit=limit)
+
+    @app.get("/api/history/day")
+    async def daily_observation_history(
+        date: str,
+        timezone_offset_minutes: int = 0,
+        limit: int = 20,
+    ):
+        try:
+            selected_day = Date.fromisoformat(date)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="date must use YYYY-MM-DD"
+            ) from exc
+        try:
+            return runtime.store.daily_timeline(
+                selected_day,
+                timezone_offset_minutes=timezone_offset_minutes,
+                recent_limit=limit,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/camera/start")
     def camera_start():
